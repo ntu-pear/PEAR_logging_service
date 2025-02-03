@@ -1,30 +1,20 @@
 from typing import List
-from fastapi import APIRouter, HTTPException, Depends
-from app.elasticsearch.elasticsearch import ElasticsearchService
-from app.elasticsearch.config import settings
+from fastapi import APIRouter, HTTPException
+from app.elasticsearch.elasticsearch import es_service
 from app.schemas.log_document import LogDocument
-from elasticsearch import Elasticsearch
 import logging
 
 logger = logging.getLogger("uvicorn")
-
 router = APIRouter()
-es_service = ElasticsearchService(
-    host=settings.ES_HOST,
-    port=settings.ES_PORT,
-    username=settings.ES_USERNAME,
-    password=settings.ES_PASSWORD,
-)
-#es = Elasticsearch(hosts="http://elastic:BCYTUXDk2uiCrHWWpzQ+@10.96.188.172:9200/")
-# Check if Elasticsearch is connected
+
 @router.get("/health")
 def check_health():
-    if es.ping():
+    if es_service.ping():
         return {"status": "Elasticsearch is healthy"}
     else:
         raise HTTPException(status_code=500, detail="Elasticsearch is not reachable")
-#response_model=List[LogDocument]
-@router.get("/logs")
+
+@router.get("/logs", response_model=List[LogDocument])
 def get_all_logs():
     query = {
         "query": {
@@ -34,7 +24,7 @@ def get_all_logs():
                 }
             }
         },
-        "size": 100  # Adjust the number of logs you want to retrieve
+        "size": 100
         # "sort": [
         #     {"timestamp": {"order": "desc"}}
         # ]
@@ -42,11 +32,23 @@ def get_all_logs():
     
     try:
         # Query all indices for logs with log_type = "http_request"
-        response = es.search(index="*", body=query, headers={"Content-Type": "application/json"})
-        hits = response.get('hits', {}).get('hits', [])
-        logger.info(response)
-        logger.info(f"Hits: {hits}")
-        return [response]
+        response = es_service.search_documents(index="*", body=query, headers={"Content-Type": "application/json"})
+        hits = response.get('hits', {}).get('hits',[])
+        logs = [
+            LogDocument(
+                timestamp=hit["_source"].get("@timestamp", ""),
+                log_type=hit["_source"].get("log_type", ""),
+                method=hit["_source"].get("method", ""),
+                url=hit["_source"].get("url", ""),
+                user=hit["_source"].get("user", ""),
+                status=hit["_source"].get("status", ""),
+                request_body=hit["_source"].get("request_body")
+            )
+            for hit in hits
+        ]
+        logger.info(f"Hits: {len(hits)}")
+        logger.info(f"Logs: {logs}")
+        return logs
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error querying Elasticsearch: {str(e)}")
 
