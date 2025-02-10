@@ -67,6 +67,6 @@ dmypy.json
 # Ignore 
 logs/*.log
 
-**/__pycache__/*
+**/__pycache__
 /__pycache__/*
 app/__pycache__/*
