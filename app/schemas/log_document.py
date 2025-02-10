@@ -3,9 +3,8 @@ from pydantic import BaseModel
 
 class LogDocument(BaseModel):
     timestamp: str
-    log_type: str
     method: str
-    url: str
+    table: str
     user: str
-    status: str
-    request_body: Optional[str] = None
+    original_data: Optional[dict] = None
+    updated_data: Optional[dict] = None
