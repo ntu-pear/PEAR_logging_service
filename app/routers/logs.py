@@ -1,7 +1,9 @@
-from typing import List
+from typing import List, Optional
 from fastapi import APIRouter, HTTPException
 from app.elasticsearch.elasticsearch import es_service
 from app.schemas.log_document import LogDocument
+from app.crud import logs_crud
+from ..schemas.response import SingleResponse, PaginatedResponse
 import logging
 
 logger = logging.getLogger("uvicorn")
@@ -14,44 +16,15 @@ def check_health():
     else:
         raise HTTPException(status_code=500, detail="Elasticsearch is not reachable")
 
-@router.get("/logs", response_model=List[LogDocument])
-def get_all_logs():
-    query = {
-        "query": {
-            "match": {
-                "log_type": {
-                    "query": "http_response"
-                }
-            }
-        },
-        "size": 100
-        # "sort": [
-        #     {"timestamp": {"order": "desc"}}
-        # ]
-    }
-    
-    try:
-        # Query all indices for logs with log_type = "http_request"
-        response = es_service.search_documents(index="*", body=query, headers={"Content-Type": "application/json"})
-        hits = response.get('hits', {}).get('hits',[])
-        logs = [
-            LogDocument(
-                timestamp=hit["_source"].get("@timestamp", ""),
-                log_type=hit["_source"].get("log_type", ""),
-                method=hit["_source"].get("method", ""),
-                url=hit["_source"].get("url", ""),
-                user=hit["_source"].get("user", ""),
-                status=hit["_source"].get("status", ""),
-                request_body=hit["_source"].get("request_body")
-            )
-            for hit in hits
-        ]
-        logger.info(f"Hits: {len(hits)}")
-        logger.info(f"Logs: {logs}")
-        return logs
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error querying Elasticsearch: {str(e)}")
+@router.get("/logs/", response_model=PaginatedResponse[LogDocument])
+def get_all_logs(pageNo: int = 0, pageSize: int = 10):
+    db_logs, totalRecords, totalPages = logs_crud.get_all_logs(pageNo, pageSize)
+    return PaginatedResponse(data=db_logs, pageNo=pageNo,pageSize=pageSize,totalRecords=totalRecords, totalPages=totalPages)
 
+@router.get("/logs/filter", response_model=PaginatedResponse[LogDocument])
+def get_logs_by_param(action: Optional[str] = None, user: Optional[str] = None, table:Optional[str] = None, pageNo: int = 0, pageSize: int = 10):
+    db_logs, totalRecords, totalPages = logs_crud.get_logs_by_param(action,user,table,pageNo, pageSize)
+    return PaginatedResponse(data=db_logs, pageNo=pageNo,pageSize=pageSize,totalRecords=totalRecords, totalPages=totalPages)
 
 # # Read a log entry by ID
 # @router.get("/logs/{index_name}/{document_id}")
