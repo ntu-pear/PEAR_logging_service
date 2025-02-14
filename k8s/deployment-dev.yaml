@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: logger-service-dev
+  labels:
+    app: logger-service-dev
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: logger-service-dev
+  template:
+    metadata:
+      labels:
+        app: logger-service-dev
+    spec:
+      containers:
+      - name: logger-service
+        image: host.minikube.internal:5000/logger_service_dev  # Replace with your Docker image
+        ports:
+        - containerPort: 8001
+        env:
+        - name: ES_HOST
+          value: "192.168.188.172"
+        - name: ES_PORT
+          value: 9200
+        - name: ES_USERNAME
+          value: "elastic"
+        - name: ES_PASSWORD
+          value: "BCYTUXDk2uiCrHWWpzQ"
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: logger-service-dev
+spec:
+  selector:
+    app: logger-service-dev
+  ports:
+    - protocol: TCP
+      port: 8001
+      targetPort: 8001
+      nodePort: 30001
+  type: NodePort
