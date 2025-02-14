@@ -21,7 +21,7 @@ class ElasticsearchService:
             return self.client.ping()
         except exceptions.ConnectionError:
             return False
-
+    
     def create_index(self, index_name: str, mappings: dict):
         if not self.client.indices.exists(index=index_name):
             self.client.indices.create(index=index_name, body=mappings)
