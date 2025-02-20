@@ -1,0 +1,66 @@
+# This workflow will install Python dependencies, run tests and lint with a single version of Python
+# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-python
+
+name: CD
+
+on:
+  push:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: [self-hosted, Linux, X64, logger]
+
+    env:
+      ES_HOST: ${{ secrets.ES_HOST }}
+      ES_PORT: ${{ secrets.ES_PORT }}
+      ES_USERNAME: ${{ secrets.ES_USERNAME }}
+      ES_PASSWORD: ${{ secrets.ES_PASSWORD }}
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Print working directory
+        run: |
+          pwd
+          ls -la
+          git status
+
+      - name: Create .env file from GitHub Secrets
+        run: |
+          echo "ES_HOST=${{ secrets.ES_HOST }}" >> .env
+          echo "ES_PORT=${{ secrets.ES_PORT }}" >> .env
+          echo "ES_USERNAME=${{ secrets.ES_USERNAME }}" >> .env
+          echo "ES_PASSWORD=${{ secrets.ES_PASSWORD }}" >> .env
+
+      - name: Delete old deployment
+        run: |
+          echo "Deleting old deployment..."
+          kubectl delete deployment.apps/logger-service-dev service/logger-service-dev
+
+      - name: Delete old docker images
+        run: |
+          docker rmi logger_service_dev
+          docker rmi localhost:5000/logger_service_dev
+
+      - name: Build Docker image
+        run: |
+          echo "Building Docker image..."
+          docker build --no-cache -f Dockerfile -t logger_service_dev .
+
+      - name: Tag Docker image
+        run: |
+          echo "Tagging Docker image..."
+          docker tag logger_service_dev:latest localhost:5000/logger_service_dev:latest
+
+      - name: Push Docker image to local registry
+        run: |
+          echo "Pushing Docker image to localhost:5000...."
+          docker push localhost:5000/logger_service_dev:latest
+
+      - name: Deploying to Kubernetes
+        run: |
+          echo "Deploying..."
+          kubectl apply -f './k8s/deployment-dev.yaml'
