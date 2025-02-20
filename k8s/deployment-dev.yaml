@@ -23,7 +23,7 @@ spec:
         - name: ES_HOST
           value: "192.168.188.172"
         - name: ES_PORT
-          value: 9200
+          value: "9200"
         - name: ES_USERNAME
           value: "elastic"
         - name: ES_PASSWORD
