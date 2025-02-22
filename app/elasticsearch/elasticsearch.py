@@ -13,7 +13,7 @@ class ElasticsearchService:
     def __init__(self, host: str, port: int, username: str, password: str ):
         self.client = Elasticsearch(
             hosts=[{"host": host, "port": port, "scheme": "http"}],
-            basic_auth=(username, password),
+            http_auth=(username, password),
         )
 
     def is_connected(self):
