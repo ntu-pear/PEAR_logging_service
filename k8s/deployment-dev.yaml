@@ -27,7 +27,7 @@ spec:
         - name: ES_USERNAME
           value: "elastic"
         - name: ES_PASSWORD
-          value: "BCYTUXDk2uiCrHWWpzQ"
+          value: "BCYTUXDk2uiCrHWWpzQ+"
 
 ---
 apiVersion: v1
