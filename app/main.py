@@ -8,7 +8,7 @@ app.include_router(logs_router, prefix="/api")
 
 origins = [
     "http://localhost:5173",
-    "http://10.96.188.172:5173/"
+    "http://10.96.188.172:5173"
 ]
 
 # Middleware for CORS
