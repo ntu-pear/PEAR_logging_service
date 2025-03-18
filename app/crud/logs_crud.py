@@ -2,24 +2,27 @@ from typing import Optional, Literal
 from fastapi import HTTPException
 from app.elasticsearch.elasticsearch import es_service
 from app.schemas.log_document import LogDocument
+from app.schemas.log_query import LogQuery
 import math
     
-def get_logs_by_param(action: Optional[str] = None, user: Optional[str] = None, table: Optional[str] = None, timestamp_order: Literal["asc", "desc"] = "desc", pageNo: int = 0, pageSize: int = 10):
+def get_logs_by_param(query: LogQuery, pageNo: int = 0, pageSize: int = 10):
     offset = pageNo * pageSize
     must_conditions = []
     
-    if action:
-        must_conditions.append({"match": {"action": action}})
-    if user:
-        must_conditions.append({"match": {"user": user}})
-    if table:
-        must_conditions.append({"match": {"table": table}})
+    if query.action:
+        must_conditions.append({"match": {"action": query.action}})
+    if query.user:
+        must_conditions.append({"match": {"user": query.user}})
+    if query.table:
+        must_conditions.append({"match": {"table": query.table}})
+    if query.patient:
+        must_conditions.append({"match": {"message.entity_id": query.patient}})
     query = {
         "query": {"bool": {"must": must_conditions}} if must_conditions else {"match_all": {}},
         "size": pageSize,
         "from": offset,
         "sort": [
-            {"timestamp": {"order": timestamp_order}}
+            {"timestamp": {"order": query.timestamp_order}}
         ],
         "track_total_hits": True,
     }
