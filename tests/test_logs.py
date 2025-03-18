@@ -1,6 +1,7 @@
 import pytest
 from unittest.mock import patch
 from app.crud.logs_crud import get_logs_by_param
+from app.schemas.log_query import LogQuery
 
 sample_es_response = {
     "hits": {
@@ -54,7 +55,10 @@ def mock_es_service():
 
 def test_get_logs_no_params(mock_es_service):
     """Test getting logs without any filter parameters"""
-    logs, total_records, total_pages = get_logs_by_param()
+    query = LogQuery()
+
+    # Call the function with the manually created query
+    logs, total_records, total_pages = get_logs_by_param(query=query)
     
     expected_query = {
         "query": {"match_all": {}},
