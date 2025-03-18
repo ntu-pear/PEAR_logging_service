@@ -52,6 +52,12 @@ def get_logs_by_param(query: LogQuery, pageNo: int = 0, pageSize: int = 10):
                         patient_id = original_data.get("PatientId")
                     elif updated_data.get("PatientId"):
                         patient_id = updated_data.get("PatientId")
+                    elif original_data.get("patientId"):
+                        patient_id = original_data.get("patientId")
+                    elif updated_data.get("PatientID"):
+                        patient_id = updated_data.get("PatientID")
+                    elif updated_data.get("PatientID"):
+                        patient_id = updated_data.get("PatientID")
                 log = LogDocument(
                         timestamp=source.get("timestamp", ""),
                         method=source.get("action", ""),
