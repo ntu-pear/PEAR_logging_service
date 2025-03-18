@@ -39,7 +39,7 @@ def get_logs_by_param(query: LogQuery, pageNo: int = 0, pageSize: int = 10):
                         timestamp=source.get("timestamp", ""),
                         method=source.get("action", ""),
                         table=source.get("table", ""),
-                        patient_id=message_data.get("entity_id"),
+                        patient_id=message_data.get("entity_id", ""),
                         user=source.get("user", ""),
                         user_full_name=source.get("user_full_name", ""),
                         message=source.get("log_text", ""),
@@ -47,7 +47,7 @@ def get_logs_by_param(query: LogQuery, pageNo: int = 0, pageSize: int = 10):
                         updated_data=message_data.get("updated_data")
                     )
                 logs.append(log)
-            except e:
+            except Exception as e:
                 print("Could not read log")
         totalRecords = response.get('hits', {}).get('total', {}).get('value', 0)
         totalPages = math.ceil(totalRecords/pageSize)
