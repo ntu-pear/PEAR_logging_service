@@ -26,7 +26,7 @@ sample_es_response = {
                     "table": "DoctorNote",
                     "user": "admin",
                     "message": {
-                        "original_data": None,
+                        "original_data": {},
                         "updated_data": {"id": 2, "patient_id": "1", "doctor_id": "3", "remarks": "Patient is alive"}
                     }
                 }
@@ -38,7 +38,7 @@ sample_es_response = {
                     "table": "PatientAllergyMapping",
                     "user": "not admin",
                     "message": {
-                        "original_data": None,
+                        "original_data": {},
                         "updated_data": {"AllergyRemarks": "Patient has severe reactions", "IsDeleted": "0", "PatientID": 2, "AllergyTypeID": 3, "AllergyReactionTypeID": 4}
                     }
                 }
