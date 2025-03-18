@@ -48,6 +48,18 @@ def get_logs_by_param(query: LogQuery, pageNo: int = 0, pageSize: int = 10):
                 "minimum_should_match": 1  # Ensures at least one match
             }
     })
+    
+    # Add timestamp range filter
+    if query.start_date or query.end_date:
+        range_filter = {"range": {"timestamp": {}}}
+        
+        if query.start_date:
+            range_filter["range"]["timestamp"]["gte"] = query.start_date
+        if query.end_date:
+            range_filter["range"]["timestamp"]["lte"] = query.end_date
+            
+        must_conditions.append(range_filter)
+
     query = {
         "query": {"bool": {"must": must_conditions}} if must_conditions else {"match_all": {}},
         "size": pageSize,
