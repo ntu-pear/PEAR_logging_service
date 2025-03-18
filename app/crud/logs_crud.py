@@ -39,6 +39,7 @@ def get_logs_by_param(query: LogQuery, pageNo: int = 0, pageSize: int = 10):
                         timestamp=source.get("timestamp", ""),
                         method=source.get("action", ""),
                         table=source.get("table", ""),
+                        patient_id=query.patient,
                         user=source.get("user", ""),
                         user_full_name=source.get("user_full_name", ""),
                         message=source.get("log_text", ""),
