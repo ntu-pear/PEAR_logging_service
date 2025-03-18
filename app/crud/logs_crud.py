@@ -19,7 +19,35 @@ def get_logs_by_param(query: LogQuery, pageNo: int = 0, pageSize: int = 10):
     if query.table:
         must_conditions.append({"match": {"table": query.table}})
     if query.patient:
-        must_conditions.append({"match": {"message.entity_id": query.patient}})
+        must_conditions.append({
+            "bool": {
+                "should": [
+                    {
+                        "bool": {
+                            "must": [
+                                {"match": {"table": "Patient"}},
+                                {
+                                    "bool": {
+                                        "should": [
+                                            {"match": {"message.updated_data.id": query.patient}},
+                                            {"match": {"message.original_data.id": query.patient}}
+                                        ],
+                                        "minimum_should_match": 1  # At least one ID should match
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    {"match": {"message.updated_data.PatientID": query.patient}},
+                    {"match": {"message.updated_data.PatientId": query.patient}},
+                    {"match": {"message.updated_data.patientId": query.patient}},
+                    {"match": {"message.original_data.PatientID": query.patient}},
+                    {"match": {"message.original_data.PatientId": query.patient}},
+                    {"match": {"message.original_data.patientId": query.patient}}
+                ],
+                "minimum_should_match": 1  # Ensures at least one match
+            }
+    })
     query = {
         "query": {"bool": {"must": must_conditions}} if must_conditions else {"match_all": {}},
         "size": pageSize,
