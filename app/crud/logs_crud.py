@@ -4,7 +4,10 @@ from app.elasticsearch.elasticsearch import es_service
 from app.schemas.log_document import LogDocument
 from app.schemas.log_query import LogQuery
 import math
-    
+import logging
+ 
+logger = logging.getLogger("uvicorn")
+
 def get_logs_by_param(query: LogQuery, pageNo: int = 0, pageSize: int = 10):
     offset = pageNo * pageSize
     must_conditions = []
@@ -35,20 +38,35 @@ def get_logs_by_param(query: LogQuery, pageNo: int = 0, pageSize: int = 10):
             try:
                 source = hit["_source"]
                 message_data = source.get("message", "{}")
+                original_data=message_data.get("original_data")
+                updated_data=message_data.get("updated_data")
+                table=source.get("table", "")
+                patient_id = None
+                if table == "Patient":
+                    if original_data.get("id"):
+                        patient_id = original_data.get("id")
+                    elif updated_data.get("id"):
+                        patient_id = updated_data.get("id")
+                else:
+                    if original_data.get("PatientId"):
+                        patient_id = original_data.get("PatientId")
+                    elif updated_data.get("PatientId"):
+                        patient_id = updated_data.get("PatientId")
                 log = LogDocument(
                         timestamp=source.get("timestamp", ""),
                         method=source.get("action", ""),
                         table=source.get("table", ""),
-                        patient_id=message_data.get("entity_id", ""),
+                        patient_id=patient_id,
                         user=source.get("user", ""),
                         user_full_name=source.get("user_full_name", ""),
                         message=source.get("log_text", ""),
-                        original_data=message_data.get("original_data"),
-                        updated_data=message_data.get("updated_data")
+                        original_data=original_data,
+                        updated_data=updated_data
                     )
                 logs.append(log)
+                logger.info(f"Log : {log}")
             except Exception as e:
-                print("Could not read log")
+                print(f"Could not read log, {e}")
         totalRecords = response.get('hits', {}).get('total', {}).get('value', 0)
         totalPages = math.ceil(totalRecords/pageSize)
         return logs, totalRecords, totalPages
