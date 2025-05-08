@@ -1,4 +1,5 @@
 # PEAR_logging_service
+Central Logging Service for PEAR Microservices
 
 ### Setting Up Your Environment
 1. Create a Conda Virtual Environment:
