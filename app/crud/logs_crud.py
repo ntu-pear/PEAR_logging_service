@@ -8,7 +8,7 @@ import logging
  
 logger = logging.getLogger("uvicorn")
 
-def get_logs_by_param(query: LogQuery, pageNo: int = 0, pageSize: int = 10):
+def get_logs_by_param_patient(query: LogQuery, pageNo: int = 0, pageSize: int = 10):
     offset = pageNo * pageSize
     must_conditions = []
     
@@ -118,4 +118,36 @@ def get_logs_by_param(query: LogQuery, pageNo: int = 0, pageSize: int = 10):
         return logs, totalRecords, totalPages
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error querying Elasticsearch: {str(e)}")
-    
+
+def get_login_logs():
+    query = {
+        "query": {
+            "match": {"action": "login"}
+        },
+        "sort": [{"@timestamp": {"order": "desc"}}],
+        "size": 50  # optional: limit results
+    }
+
+    response = es_service.search_documents(index="logs-*", body=query)
+
+    hits = response["hits"]["hits"]
+    return [hit["_source"] for hit in hits]
+
+def get_logs_by_action_and_user(action: str, full_name: str):
+    query = {
+        "query": {
+            "bool": {
+                "must": [
+                    {"match": {"action": action}},
+                    {"match": {"userFullName": full_name}}  # Adjust field name to match your ES mapping
+                ]
+            }
+        },
+        "sort": [{"@timestamp": {"order": "desc"}}],
+        "size": 50  # Limit number of results
+    }
+
+    response = es_service.search_documents(index="logs-*", body=query)
+    hits = response["hits"]["hits"]
+
+    return [hit["_source"] for hit in hits]
