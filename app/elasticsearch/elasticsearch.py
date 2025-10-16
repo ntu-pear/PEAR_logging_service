@@ -8,7 +8,7 @@ load_dotenv()
 
 ES_HOST = os.getenv("ES_HOST")
 ES_PORT = int(os.getenv("ES_PORT"))
-ES_USERNAME = os.getenv("ES_USER")
+ES_USERNAME = os.getenv("ES_USERNAME")
 ES_PASSWORD = os.getenv("ES_PASSWORD")
 
 class ElasticsearchService:
