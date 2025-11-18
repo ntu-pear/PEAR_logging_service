@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.routers.logs import router as logs_router
 
-app = FastAPI()
+app = FastAPI(title="PEAR Logger Service (Staging)", description="Logger Service API Documentation")
 app.include_router(logs_router, prefix="/api")
 
 origins = [

@@ -23,7 +23,7 @@ def get_user_login_logs():
         raise HTTPException(status_code=500, detail=f"Error querying Elasticsearch: {e}")
     
 @router.get("/Logs/User_Logins_Name", description="Get all login logs filtered by user full name")
-def get_user_login_logs_names(
+def get_user_login_logs_by_names(
     fullName: str = Query(..., description="Full name of the user")
 ):
     try:

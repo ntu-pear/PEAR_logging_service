@@ -132,6 +132,7 @@ def get_login_logs():
 
     hits = response["hits"]["hits"]
     return [hit["_source"] for hit in hits]
+#Query Logs by Action Type
 
 def get_logs_by_action_and_user(action: str, full_name: str):
     query = {
@@ -139,12 +140,12 @@ def get_logs_by_action_and_user(action: str, full_name: str):
             "bool": {
                 "must": [
                     {"match": {"action": action}},
-                    {"match": {"userFullName": full_name}}  # Adjust field name to match your ES mapping
+                    {"match_phrase": {"user_full_name": full_name}}
                 ]
             }
         },
         "sort": [{"@timestamp": {"order": "desc"}}],
-        "size": 50  # Limit number of results
+        "size": 50
     }
 
     response = es_service.search_documents(index="logs-*", body=query)
