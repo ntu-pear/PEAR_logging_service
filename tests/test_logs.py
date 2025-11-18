@@ -1,6 +1,6 @@
 import pytest
 from unittest.mock import patch
-from app.crud.logs_crud import get_logs_by_param
+from app.crud.logs_crud import get_logs_by_param_patient
 from app.schemas.log_query import LogQuery
 
 sample_es_response = {
@@ -58,7 +58,7 @@ def test_get_logs_no_params(mock_es_service):
     query = LogQuery()
 
     # Call the function with the manually created query
-    logs, total_records, total_pages = get_logs_by_param(query=query)
+    logs, total_records, total_pages = get_logs_by_param_patient(query=query)
     
     expected_query = {
         "query": {"match_all": {}},
