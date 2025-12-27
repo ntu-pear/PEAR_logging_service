@@ -5,6 +5,7 @@ from app.schemas.log_document import LogDocument
 from app.schemas.log_query import LogQuery
 import math
 import logging
+import json
  
 logger = logging.getLogger("uvicorn")
 
@@ -77,9 +78,28 @@ def get_logs_by_param_patient(query: LogQuery, pageNo: int = 0, pageSize: int = 
         for hit in hits:
             try:
                 source = hit["_source"]
-                message_data = source.get("message", "{}")
-                original_data=message_data.get("original_data")
-                updated_data=message_data.get("updated_data")
+                message_data = source.get("message")
+
+                # message may be str → parse it
+                if isinstance(message_data, str):
+                    try:
+                        message_data = json.loads(message_data)
+                    except json.JSONDecodeError:
+                        message_data = {}
+
+                # if still not a dict, force it to {}
+                if not isinstance(message_data, dict):
+                    message_data = {}
+
+                original_data = message_data.get("original_data", {})
+                updated_data = message_data.get("updated_data", {})
+
+                # fallback to old log_data if message was empty
+                if not original_data and not updated_data:
+                    log_data = source.get("log_data", {})
+                    original_data = log_data.get("original_data", {}) or original_data
+                    updated_data = log_data.get("updated_data", {}) or updated_data
+
                 table=source.get("table", "")
                 patient_id = None
                 if table == "Patient":
