@@ -42,8 +42,8 @@ jobs:
 
       - name: Delete old docker images
         run: |
-          docker rmi logger_service_dev
-          docker rmi localhost:5000/logger_service_dev
+          docker rmi logger_service_dev || true
+          docker rmi localhost:5000/logger_service_dev || true
 
       - name: Build Docker image
         run: |
