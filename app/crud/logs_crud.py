@@ -5,14 +5,14 @@ from app.schemas.log_document import LogDocument
 from app.schemas.log_query import LogQuery
 import math
 import logging
-import json
- 
+
 logger = logging.getLogger("uvicorn")
+
 
 def get_logs_by_param_patient(query: LogQuery, pageNo: int = 0, pageSize: int = 10):
     offset = pageNo * pageSize
     must_conditions = []
-    
+
     if query.action:
         must_conditions.append({"match": {"action": query.action}})
     if query.user:
@@ -48,17 +48,17 @@ def get_logs_by_param_patient(query: LogQuery, pageNo: int = 0, pageSize: int = 
                 ],
                 "minimum_should_match": 1  # Ensures at least one match
             }
-    })
-    
+        })
+
     # Add timestamp range filter
     if query.start_date or query.end_date:
         range_filter = {"range": {"timestamp": {}}}
-        
+
         if query.start_date:
             range_filter["range"]["timestamp"]["gte"] = query.start_date
         if query.end_date:
             range_filter["range"]["timestamp"]["lte"] = query.end_date
-            
+
         must_conditions.append(range_filter)
 
     query = {
@@ -73,34 +73,15 @@ def get_logs_by_param_patient(query: LogQuery, pageNo: int = 0, pageSize: int = 
 
     try:
         response = es_service.search_documents(index="*", body=query, headers={"Content-Type": "application/json"})
-        hits = response.get('hits', {}).get('hits',[])
+        hits = response.get('hits', {}).get('hits', [])
         logs = []
         for hit in hits:
             try:
                 source = hit["_source"]
-                message_data = source.get("message")
-
-                # message may be str → parse it
-                if isinstance(message_data, str):
-                    try:
-                        message_data = json.loads(message_data)
-                    except json.JSONDecodeError:
-                        message_data = {}
-
-                # if still not a dict, force it to {}
-                if not isinstance(message_data, dict):
-                    message_data = {}
-
-                original_data = message_data.get("original_data", {})
-                updated_data = message_data.get("updated_data", {})
-
-                # fallback to old log_data if message was empty
-                if not original_data and not updated_data:
-                    log_data = source.get("log_data", {})
-                    original_data = log_data.get("original_data", {}) or original_data
-                    updated_data = log_data.get("updated_data", {}) or updated_data
-
-                table=source.get("table", "")
+                message_data = source.get("message", "{}")
+                original_data = message_data.get("original_data")
+                updated_data = message_data.get("updated_data")
+                table = source.get("table", "")
                 patient_id = None
                 if table == "Patient":
                     if original_data.get("id"):
@@ -119,25 +100,26 @@ def get_logs_by_param_patient(query: LogQuery, pageNo: int = 0, pageSize: int = 
                     elif original_data.get("PatientID"):
                         patient_id = original_data.get("PatientID")
                 log = LogDocument(
-                        timestamp=source.get("timestamp", ""),
-                        method=source.get("action", ""),
-                        table=source.get("table", ""),
-                        patient_id=patient_id,
-                        user=source.get("user", ""),
-                        user_full_name=source.get("user_full_name", ""),
-                        message=source.get("log_text", ""),
-                        original_data=original_data,
-                        updated_data=updated_data
-                    )
+                    timestamp=source.get("timestamp", ""),
+                    method=source.get("action", ""),
+                    table=source.get("table", ""),
+                    patient_id=patient_id,
+                    user=source.get("user", ""),
+                    user_full_name=source.get("user_full_name", ""),
+                    message=source.get("log_text", ""),
+                    original_data=original_data,
+                    updated_data=updated_data
+                )
                 logs.append(log)
                 logger.info(f"Log : {log}")
             except Exception as e:
                 print(f"Could not read log, {e}")
         totalRecords = response.get('hits', {}).get('total', {}).get('value', 0)
-        totalPages = math.ceil(totalRecords/pageSize)
+        totalPages = math.ceil(totalRecords / pageSize)
         return logs, totalRecords, totalPages
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error querying Elasticsearch: {str(e)}")
+
 
 def get_login_logs():
     query = {
@@ -152,7 +134,9 @@ def get_login_logs():
 
     hits = response["hits"]["hits"]
     return [hit["_source"] for hit in hits]
-#Query Logs by Action Type
+
+
+# Query Logs by Action Type
 
 def get_logs_by_action_and_user(action: str, full_name: str):
     query = {
