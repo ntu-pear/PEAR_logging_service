@@ -1,3 +1,5 @@
+import json
+import re
 from typing import Optional, Literal
 from fastapi import HTTPException
 from app.elasticsearch.elasticsearch import es_service
@@ -14,11 +16,13 @@ def get_logs_by_param_patient(query: LogQuery, pageNo: int = 0, pageSize: int = 
     must_conditions = []
 
     if query.action:
-        must_conditions.append({"match": {"action": query.action}})
+        must_conditions.append({"match_phrase": {"message": f"\"action\": \"{query.action}\""}})
     if query.user:
-        must_conditions.append({"match": {"user": query.user}})
+        must_conditions.append({"match_phrase": {"message": f"\"user\": \"{query.user}\""}})
     if query.table:
-        must_conditions.append({"match": {"table": query.table}})
+        must_conditions.append({"match_phrase": {"message": f"\"table\": \"{query.table}\""}})
+
+    # Handle Patient ID search
     if query.patient:
         must_conditions.append({
             "bool": {
@@ -26,12 +30,16 @@ def get_logs_by_param_patient(query: LogQuery, pageNo: int = 0, pageSize: int = 
                     {
                         "bool": {
                             "must": [
-                                {"match": {"table": "Patient"}},
+                                # Search the patient id from the Patient table
+                                {"match_phrase": {"message": "\"table\": \"Patient\""}},
                                 {
                                     "bool": {
+                                        # Match patient ID
                                         "should": [
-                                            {"match": {"message.updated_data.id": query.patient}},
-                                            {"match": {"message.original_data.id": query.patient}}
+                                            {"regexp": {"message": {
+                                                "value": f".*'updated_data':.*'id': {query.patient}[,}}]"}}},
+                                            {"regexp": {"message": {
+                                                "value": f".*'original_data':.*'id': {query.patient}[,}}]"}}}
                                         ],
                                         "minimum_should_match": 1  # At least one ID should match
                                     }
@@ -39,12 +47,14 @@ def get_logs_by_param_patient(query: LogQuery, pageNo: int = 0, pageSize: int = 
                             ]
                         }
                     },
-                    {"match": {"message.updated_data.PatientID": query.patient}},
-                    {"match": {"message.updated_data.PatientId": query.patient}},
-                    {"match": {"message.updated_data.patientId": query.patient}},
-                    {"match": {"message.original_data.PatientID": query.patient}},
-                    {"match": {"message.original_data.PatientId": query.patient}},
-                    {"match": {"message.original_data.patientId": query.patient}}
+                    # Single regex that matches any of the 3 capitalization patterns
+                    {
+                        "regexp": {
+                            "message": {
+                                "value": f".*(original_data|updated_data).*(PatientID|PatientId|patientId)\\s*:\\s*{query.patient}[,}}]"
+                            }
+                        }
+                    }
                 ],
                 "minimum_should_match": 1  # Ensures at least one match
             }
@@ -52,12 +62,12 @@ def get_logs_by_param_patient(query: LogQuery, pageNo: int = 0, pageSize: int = 
 
     # Add timestamp range filter
     if query.start_date or query.end_date:
-        range_filter = {"range": {"timestamp": {}}}
+        range_filter = {"range": {"@timestamp": {}}}
 
         if query.start_date:
-            range_filter["range"]["timestamp"]["gte"] = query.start_date
+            range_filter["range"]["@timestamp"]["gte"] = query.start_date
         if query.end_date:
-            range_filter["range"]["timestamp"]["lte"] = query.end_date
+            range_filter["range"]["@timestamp"]["lte"] = query.end_date
 
         must_conditions.append(range_filter)
 
@@ -66,7 +76,7 @@ def get_logs_by_param_patient(query: LogQuery, pageNo: int = 0, pageSize: int = 
         "size": pageSize,
         "from": offset,
         "sort": [
-            {"timestamp": {"order": query.timestamp_order}}
+            {"@timestamp": {"order": query.timestamp_order}}
         ],
         "track_total_hits": True,
     }
@@ -78,10 +88,46 @@ def get_logs_by_param_patient(query: LogQuery, pageNo: int = 0, pageSize: int = 
         for hit in hits:
             try:
                 source = hit["_source"]
-                message_data = source.get("message", "{}")
-                original_data = message_data.get("original_data")
-                updated_data = message_data.get("updated_data")
-                table = source.get("table", "")
+                message_str = source.get("message", "")
+
+                # Parse JSON string from message field
+                try:
+                    # First try to parse as is
+                    parsed_message = json.loads(message_str)
+                except json.JSONDecodeError:
+                    # Try to fix single quotes
+                    try:
+                        fixed_json = message_str.replace("'", '"')
+                        parsed_message = json.loads(fixed_json)
+                    except:
+                        logger.error(f"Failed to parse message: {message_str[:200]}")
+                        continue
+
+                # Extract data from parsed JSON
+                timestamp = parsed_message.get("timestamp", "")
+                level = parsed_message.get("level", "")
+                logger_name = parsed_message.get("logger", "")
+                user = parsed_message.get("user", "")
+                user_full_name = parsed_message.get("user_full_name", "")
+                table = parsed_message.get("table", "")
+                action = parsed_message.get("action", "")
+                log_text = parsed_message.get("log_text", "")
+
+                # Parse inner message field
+                inner_message = parsed_message.get("message", {})
+                if isinstance(inner_message, str):
+                    try:
+                        fixed = inner_message
+                        fixed = re.sub(r"(?<!\\)'", '"', fixed)
+                        fixed = fixed.replace('\\"', "'")
+                        inner_message = json.loads(fixed)
+                    except:
+                        inner_message = {}
+
+                original_data = inner_message.get("original_data", {})
+                updated_data = inner_message.get("updated_data", {})
+                entity_id = inner_message.get("entity_id")
+
                 patient_id = None
                 if table == "Patient":
                     if original_data.get("id"):
@@ -100,24 +146,27 @@ def get_logs_by_param_patient(query: LogQuery, pageNo: int = 0, pageSize: int = 
                     elif original_data.get("PatientID"):
                         patient_id = original_data.get("PatientID")
                 log = LogDocument(
-                    timestamp=source.get("timestamp", ""),
-                    method=source.get("action", ""),
-                    table=source.get("table", ""),
+                    timestamp=timestamp,
+                    method=action,
+                    table=table,
                     patient_id=patient_id,
-                    user=source.get("user", ""),
-                    user_full_name=source.get("user_full_name", ""),
-                    message=source.get("log_text", ""),
+                    user=user,
+                    user_full_name=user_full_name,
+                    message=log_text,
                     original_data=original_data,
                     updated_data=updated_data
                 )
                 logs.append(log)
                 logger.info(f"Log : {log}")
             except Exception as e:
-                print(f"Could not read log, {e}")
+                logger.error(f"Could not read log: {str(e)}")
+
         totalRecords = response.get('hits', {}).get('total', {}).get('value', 0)
-        totalPages = math.ceil(totalRecords / pageSize)
+        totalPages = math.ceil(totalRecords / pageSize) if pageSize > 0 else 0
+
         return logs, totalRecords, totalPages
     except Exception as e:
+        logger.error(f"Error querying Elasticsearch: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error querying Elasticsearch: {str(e)}")
 
 
