@@ -15,6 +15,23 @@ def get_logs_by_param_patient(query: LogQuery, pageNo: int = 0, pageSize: int = 
     offset = pageNo * pageSize
     must_conditions = []
 
+    # Make sure that action is either create, update or delete
+    must_conditions.append({
+        "bool": {
+        "should": [
+            {"match_phrase": {"message": f"\"action\": \"create\""}},
+            {"match_phrase": {"message": f"\"action\": \"update\""}},
+            {"match_phrase": {"message": f"\"action\": \"delete\""}},
+        ],
+        "minimum_should_match": 1
+        }
+    })
+    must_conditions.append({
+        "match_phrase": {
+            "log.file.path": "PEAR_patient_service"
+        }
+    })
+
     if query.action:
         must_conditions.append({"match_phrase": {"message": f"\"action\": \"{query.action}\""}})
     if query.user:
@@ -27,36 +44,40 @@ def get_logs_by_param_patient(query: LogQuery, pageNo: int = 0, pageSize: int = 
         must_conditions.append({
             "bool": {
                 "should": [
+                    # For Patient table - look for 'id' field
                     {
                         "bool": {
                             "must": [
-                                # Search the patient id from the Patient table
                                 {"match_phrase": {"message": "\"table\": \"Patient\""}},
                                 {
                                     "bool": {
-                                        # Match patient ID
                                         "should": [
-                                            {"regexp": {"message": {
-                                                "value": f".*'updated_data':.*'id': {query.patient}[,}}]"}}},
-                                            {"regexp": {"message": {
-                                                "value": f".*'original_data':.*'id': {query.patient}[,}}]"}}}
+                                            # CORRECTED: Escape the curly braces
+                                            {"match_phrase": {"message": f"'updated_data': {{'id': {query.patient}}}"}},
+                                            {"match_phrase": {
+                                                "message": f"'original_data': {{'id': {query.patient}}}"}},
+                                            {"match_phrase": {"message": f"'id': {query.patient}"}}
                                         ],
-                                        "minimum_should_match": 1  # At least one ID should match
+                                        "minimum_should_match": 1
                                     }
                                 }
                             ]
                         }
                     },
-                    # Single regex that matches any of the 3 capitalization patterns
+                    # For all other tables - look for patientId/PatientId/PatientID fields
                     {
-                        "regexp": {
-                            "message": {
-                                "value": f".*(original_data|updated_data).*(PatientID|PatientId|patientId)\\s*:\\s*{query.patient}[,}}]"
-                            }
+                        "bool": {
+                            "should": [
+                                # The patterns we know work from your test results
+                                {"match_phrase": {"message": f"'patientId': {query.patient}"}},
+                                {"match_phrase": {"message": f"'PatientId': {query.patient}"}},
+                                {"match_phrase": {"message": f"'PatientID': {query.patient}"}}
+                            ],
+                            "minimum_should_match": 1
                         }
                     }
                 ],
-                "minimum_should_match": 1  # Ensures at least one match
+                "minimum_should_match": 1
             }
         })
 
@@ -85,25 +106,39 @@ def get_logs_by_param_patient(query: LogQuery, pageNo: int = 0, pageSize: int = 
         response = es_service.search_documents(index="*", body=query, headers={"Content-Type": "application/json"})
         hits = response.get('hits', {}).get('hits', [])
         logs = []
+        seen_messages = set()
         for hit in hits:
             try:
                 source = hit["_source"]
                 message_str = source.get("message", "")
+                if message_str in seen_messages:
+                    logger.debug(f"Skipping duplicate message: {message_str[:100]}...")
+                    continue
+                seen_messages.add(message_str)
+
+                # Skip logs unrelated to CRUD logs
+                if isinstance(message_str, str) and ('"action"' not in message_str or '"table"' not in message_str):
+                    continue
+
                 if isinstance(message_str, dict):
                     # If it's already a dict, use it directly
                     parsed_message = message_str
                 else:
-                    # Otherwise, try to parse it as JSON string
+                    # Use ast.literal_eval which handles Python dict syntax with single quotes and None
                     try:
-                        # First try to parse as is
-                        parsed_message = json.loads(message_str)
-                    except json.JSONDecodeError:
-                        # Try to fix single quotes
+                        import ast
+                        parsed_message = ast.literal_eval(message_str)
+                    except:
+                        # Last resort: try to fix the JSON
                         try:
-                            fixed_json = message_str.replace("'", '"')
-                            parsed_message = json.loads(fixed_json)
-                        except:
-                            logger.error(f"Failed to parse message: {message_str[:200]}")
+                            fixed = message_str.replace("None", "null")
+                            fixed = fixed.replace("True", "true").replace("False", "false")
+                            fixed = fixed.replace("'", '"')
+                            fixed = fixed.replace('\\"', "'")
+                            parsed_message = json.loads(fixed)
+                        except Exception as parse_error:
+                            logger.error(f"Failed to parse message: {str(parse_error)}")
+                            logger.error(f"Message content: {message_str[:200]}")
                             continue
 
                 # Extract data from parsed JSON
@@ -168,6 +203,7 @@ def get_logs_by_param_patient(query: LogQuery, pageNo: int = 0, pageSize: int = 
         totalPages = math.ceil(totalRecords / pageSize) if pageSize > 0 else 0
 
         return logs, totalRecords, totalPages
+
     except Exception as e:
         logger.error(f"Error querying Elasticsearch: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error querying Elasticsearch: {str(e)}")
