@@ -89,19 +89,22 @@ def get_logs_by_param_patient(query: LogQuery, pageNo: int = 0, pageSize: int = 
             try:
                 source = hit["_source"]
                 message_str = source.get("message", "")
-
-                # Parse JSON string from message field
-                try:
-                    # First try to parse as is
-                    parsed_message = json.loads(message_str)
-                except json.JSONDecodeError:
-                    # Try to fix single quotes
+                if isinstance(message_str, dict):
+                    # If it's already a dict, use it directly
+                    parsed_message = message_str
+                else:
+                    # Otherwise, try to parse it as JSON string
                     try:
-                        fixed_json = message_str.replace("'", '"')
-                        parsed_message = json.loads(fixed_json)
-                    except:
-                        logger.error(f"Failed to parse message: {message_str[:200]}")
-                        continue
+                        # First try to parse as is
+                        parsed_message = json.loads(message_str)
+                    except json.JSONDecodeError:
+                        # Try to fix single quotes
+                        try:
+                            fixed_json = message_str.replace("'", '"')
+                            parsed_message = json.loads(fixed_json)
+                        except:
+                            logger.error(f"Failed to parse message: {message_str[:200]}")
+                            continue
 
                 # Extract data from parsed JSON
                 timestamp = parsed_message.get("timestamp", "")
