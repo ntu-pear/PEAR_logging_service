@@ -195,7 +195,6 @@ def get_logs_by_param_patient(query: LogQuery, pageNo: int = 0, pageSize: int = 
                     updated_data=updated_data
                 )
                 logs.append(log)
-                logger.info(f"Log : {log}")
             except Exception as e:
                 logger.error(f"Could not read log: {str(e)}")
 
