@@ -7,7 +7,7 @@ class LogDocument(BaseModel):
     table: str
     user: str
     user_full_name: str
-    entity_id: Optional[int] = None
+    patient_id: Optional[int] = None
     original_data: Optional[dict] = None
     updated_data: Optional[dict] = None
     message: str
