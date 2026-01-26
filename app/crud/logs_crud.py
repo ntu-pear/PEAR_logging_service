@@ -208,6 +208,158 @@ def get_logs_by_param_patient(query: LogQuery, pageNo: int = 0, pageSize: int = 
         raise HTTPException(status_code=500, detail=f"Error querying Elasticsearch: {str(e)}")
 
 
+def get_logs_by_param_activity(query: LogQuery, pageNo: int = 0, pageSize: int = 10):
+    offset = pageNo * pageSize
+    must_conditions = []
+
+    # Make sure that action is either create, update or delete
+    must_conditions.append({
+        "bool": {
+            "should": [
+                {"match_phrase": {"message": f"\"action\": \"create\""}},
+                {"match_phrase": {"message": f"\"action\": \"update\""}},
+                {"match_phrase": {"message": f"\"action\": \"delete\""}},
+            ],
+            "minimum_should_match": 1
+        }
+    })
+
+    # Filter for activity service logs
+    must_conditions.append({
+        "match_phrase": {
+            "log.file.path": "PEAR_activity_service"
+        }
+    })
+
+    if query.action:
+        must_conditions.append({"match_phrase": {"message": f"\"action\": \"{query.action}\""}})
+    if query.user:
+        must_conditions.append({"match_phrase": {"message": f"\"user\": \"{query.user}\""}})
+    if query.table:
+        must_conditions.append({"match_phrase": {"message": f"\"table\": \"{query.table}\""}})
+
+    # Handle Activity ID search (entity_id in the logs)
+    if query.activity:
+        must_conditions.append({
+            "bool": {
+                "should": [
+                    {"match_phrase": {"message": f"'entity_id': {query.activity}"}},
+                    {"match_phrase": {"message": f"\"entity_id\": {query.activity}"}}
+                ],
+                "minimum_should_match": 1
+            }
+        })
+
+    # Add timestamp range filter
+    if query.start_date or query.end_date:
+        range_filter = {"range": {"@timestamp": {}}}
+
+        if query.start_date:
+            range_filter["range"]["@timestamp"]["gte"] = query.start_date
+        if query.end_date:
+            range_filter["range"]["@timestamp"]["lte"] = query.end_date
+
+        must_conditions.append(range_filter)
+
+    es_query = {
+        "query": {"bool": {"must": must_conditions}} if must_conditions else {"match_all": {}},
+        "size": pageSize,
+        "from": offset,
+        "sort": [
+            {"@timestamp": {"order": query.timestamp_order}}
+        ],
+        "track_total_hits": True,
+    }
+
+    try:
+        response = es_service.search_documents(index="*", body=es_query, headers={"Content-Type": "application/json"})
+        hits = response.get('hits', {}).get('hits', [])
+        logs = []
+        seen_messages = set()
+
+        for hit in hits:
+            try:
+                source = hit["_source"]
+                message_str = source.get("message", "")
+
+                if message_str in seen_messages:
+                    logger.debug(f"Skipping duplicate message: {message_str[:100]}...")
+                    continue
+                seen_messages.add(message_str)
+
+                # Skip logs unrelated to CRUD logs
+                if isinstance(message_str, str) and ('"action"' not in message_str or '"table"' not in message_str):
+                    continue
+
+                if isinstance(message_str, dict):
+                    parsed_message = message_str
+                else:
+                    try:
+                        import ast
+                        parsed_message = ast.literal_eval(message_str)
+                    except:
+                        try:
+                            fixed = message_str.replace("None", "null")
+                            fixed = fixed.replace("True", "true").replace("False", "false")
+                            fixed = fixed.replace("'", '"')
+                            fixed = fixed.replace('\\"', "'")
+                            parsed_message = json.loads(fixed)
+                        except Exception as parse_error:
+                            logger.error(f"Failed to parse message: {str(parse_error)}")
+                            logger.error(f"Message content: {message_str[:200]}")
+                            continue
+
+                # Extract data from parsed JSON
+                timestamp = parsed_message.get("timestamp", "")
+                level = parsed_message.get("level", "")
+                logger_name = parsed_message.get("logger", "")
+                user = parsed_message.get("user", "")
+                user_full_name = parsed_message.get("user_full_name", "")
+                table = parsed_message.get("table", "")
+                action = parsed_message.get("action", "")
+                log_text = parsed_message.get("log_text", "")
+
+                # Parse inner message field
+                inner_message = parsed_message.get("message", {})
+                if isinstance(inner_message, str):
+                    try:
+                        fixed = inner_message
+                        fixed = re.sub(r"(?<!\\)'", '"', fixed)
+                        fixed = fixed.replace('\\"', "'")
+                        inner_message = json.loads(fixed)
+                    except:
+                        inner_message = {}
+
+                original_data = inner_message.get("original_data", {})
+                updated_data = inner_message.get("updated_data", {})
+                entity_id = inner_message.get("entity_id")
+
+                log = LogDocument(
+                    timestamp=timestamp,
+                    method=action,
+                    table=table,
+                    patient_id=None,  # No patient_id for activity logs
+                    entity_id=entity_id,  # Use entity_id for activity/other entities
+                    user=user,
+                    user_full_name=user_full_name,
+                    message=log_text,
+                    original_data=original_data,
+                    updated_data=updated_data
+                )
+                logs.append(log)
+
+            except Exception as e:
+                logger.error(f"Could not read log: {str(e)}")
+
+        totalRecords = response.get('hits', {}).get('total', {}).get('value', 0)
+        totalPages = math.ceil(totalRecords / pageSize) if pageSize > 0 else 0
+
+        return logs, totalRecords, totalPages
+
+    except Exception as e:
+        logger.error(f"Error querying Elasticsearch: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error querying Elasticsearch: {str(e)}")
+
 def get_login_logs():
     query = {
         "query": {
