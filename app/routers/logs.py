@@ -14,6 +14,13 @@ def get_logs_by_param_patient(query: LogQuery = Depends(), pageNo: int = 0, page
     db_logs, totalRecords, totalPages = logs_crud.get_logs_by_param_patient(query, pageNo, pageSize)
     return PaginatedResponse(data=db_logs, pageNo=pageNo,pageSize=pageSize,totalRecords=totalRecords, totalPages=totalPages)
 
+@router.get("/Logs/Activity", response_model=PaginatedResponse[LogDocument], description="Gets all logs or logs filtered by params for activity")
+def get_logs_by_param_activity(query: LogQuery = Depends(), pageNo: int = 0, pageSize: int = 10):
+    if pageSize > 100:
+        pageSize = 100
+    db_logs, totalRecords, totalPages = logs_crud.get_logs_by_param_activity(query, pageNo, pageSize)
+    return PaginatedResponse(data=db_logs, pageNo=pageNo,pageSize=pageSize,totalRecords=totalRecords, totalPages=totalPages)
+
 @router.get("/Logs/User_Logins", description="Get all logs with action=login")
 def get_user_login_logs():
     try:
