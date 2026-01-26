@@ -8,6 +8,7 @@ class LogDocument(BaseModel):
     user: str
     user_full_name: str
     patient_id: Optional[int] = None
+    entity_id: Optional[int] = None # For activity and other entity logs
     original_data: Optional[dict] = None
     updated_data: Optional[dict] = None
     message: str
