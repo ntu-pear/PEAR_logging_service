@@ -15,6 +15,19 @@ def get_logs_by_param_patient(query: LogQuery, pageNo: int = 0, pageSize: int = 
     offset = pageNo * pageSize
     must_conditions = []
 
+    must_conditions.append({
+        "bool": {
+            "must": [
+                {"match_phrase": {"message": "\"user\""}},
+                {"match_phrase": {"message": "\"user_full_name\""}},
+                {"match_phrase": {"message": "\"table\""}},
+                {"match_phrase": {"message": "\"action\""}},
+                {"match_phrase": {"message": "\"log_text\""}},
+                {"match_phrase": {"log.file.path": "PEAR_patient_service"}}
+            ]
+        }
+    })
+
     # Make sure that action is either create, update or delete
     must_conditions.append({
         "bool": {
@@ -24,11 +37,6 @@ def get_logs_by_param_patient(query: LogQuery, pageNo: int = 0, pageSize: int = 
             {"match_phrase": {"message": f"\"action\": \"delete\""}},
         ],
         "minimum_should_match": 1
-        }
-    })
-    must_conditions.append({
-        "match_phrase": {
-            "log.file.path": "PEAR_patient_service"
         }
     })
 
@@ -106,19 +114,10 @@ def get_logs_by_param_patient(query: LogQuery, pageNo: int = 0, pageSize: int = 
         response = es_service.search_documents(index="*", body=query, headers={"Content-Type": "application/json"})
         hits = response.get('hits', {}).get('hits', [])
         logs = []
-        seen_messages = set()
         for hit in hits:
             try:
                 source = hit["_source"]
                 message_str = source.get("message", "")
-                if message_str in seen_messages:
-                    logger.debug(f"Skipping duplicate message: {message_str[:100]}...")
-                    continue
-                seen_messages.add(message_str)
-
-                # Skip logs unrelated to CRUD logs
-                if isinstance(message_str, str) and ('"action"' not in message_str or '"table"' not in message_str):
-                    continue
 
                 if isinstance(message_str, dict):
                     # If it's already a dict, use it directly
@@ -212,6 +211,19 @@ def get_logs_by_param_activity(query: LogQuery, pageNo: int = 0, pageSize: int =
     offset = pageNo * pageSize
     must_conditions = []
 
+    must_conditions.append({
+        "bool": {
+            "must": [
+                {"match_phrase": {"message": "\"user\""}},
+                {"match_phrase": {"message": "\"user_full_name\""}},
+                {"match_phrase": {"message": "\"table\""}},
+                {"match_phrase": {"message": "\"action\""}},
+                {"match_phrase": {"message": "\"log_text\""}},
+                {"match_phrase": {"log.file.path": "PEAR_activity_service"}}
+            ]
+        }
+    })
+
     # Make sure that action is either create, update or delete
     must_conditions.append({
         "bool": {
@@ -221,13 +233,6 @@ def get_logs_by_param_activity(query: LogQuery, pageNo: int = 0, pageSize: int =
                 {"match_phrase": {"message": f"\"action\": \"delete\""}},
             ],
             "minimum_should_match": 1
-        }
-    })
-
-    # Filter for activity service logs
-    must_conditions.append({
-        "match_phrase": {
-            "log.file.path": "PEAR_activity_service"
         }
     })
 
