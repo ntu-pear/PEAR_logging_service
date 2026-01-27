@@ -375,7 +375,7 @@ def get_logs_by_param_user(
     must_conditions = []
 
     must_conditions.append({
-        {"match_phrase": {"log.file.path": "PEAR_user_service"}}
+        "match_phrase": {"log.file.path": "PEAR_user_service"}
     })
 
     # User actions (e.g. login / logout/ change password)
