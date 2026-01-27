@@ -1,6 +1,6 @@
 import json
 import re
-from typing import Optional, Literal
+from typing import Optional, Literal, Tuple
 from fastapi import HTTPException
 from app.elasticsearch.elasticsearch import es_service
 from app.schemas.log_document import LogDocument
@@ -365,38 +365,107 @@ def get_logs_by_param_activity(query: LogQuery, pageNo: int = 0, pageSize: int =
         logger.error(f"Error querying Elasticsearch: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error querying Elasticsearch: {str(e)}")
 
-def get_login_logs():
-    query = {
+
+def get_logs_by_param_user(
+        query: LogQuery,
+        pageNo: int = 0,
+        pageSize: int = 10
+):
+    offset = pageNo * pageSize
+    must_conditions = []
+
+    must_conditions.append({
+        {"match_phrase": {"log.file.path": "PEAR_user_service"}}
+    })
+
+    # User actions (e.g. login / logout/ change password)
+    if query.action:
+        must_conditions.append({
+            "match_phrase": {"action": query.action}
+        })
+
+    if query.user:
+        must_conditions.append({
+            "match_phrase": {"user": query.user}
+        })
+
+    if query.user_full_name:
+        must_conditions.append({
+            "match_phrase": {"user_full_name": query.user_full_name}
+        })
+
+    # Handle timestamp range filter
+    if query.start_date or query.end_date:
+        range_filter = {"range": {"@timestamp": {}}}
+
+        if query.start_date:
+            range_filter["range"]["@timestamp"]["gte"] = query.start_date
+        if query.end_date:
+            range_filter["range"]["@timestamp"]["lte"] = query.end_date
+
+        must_conditions.append(range_filter)
+
+    # Build Elasticsearch query
+    es_query = {
         "query": {
-            "match": {"action": "login"}
-        },
-        "sort": [{"@timestamp": {"order": "desc"}}],
-        "size": 50  # optional: limit results
+            "bool": {"must": must_conditions}
+        } if must_conditions else {"match_all": {}},
+        "size": pageSize,
+        "from": offset,
+        "sort": [
+            {"@timestamp": {"order": query.timestamp_order}}
+        ],
+        "track_total_hits": True,
     }
 
-    response = es_service.search_documents(index="logs-*", body=query)
+    try:
+        # Assuming es_service is available globally
+        response = es_service.search_documents(
+            index="logs-*",
+            body=es_query,
+            headers={"Content-Type": "application/json"}
+        )
 
-    hits = response["hits"]["hits"]
-    return [hit["_source"] for hit in hits]
+        hits = response.get('hits', {}).get('hits', [])
+        logs = []
 
+        for hit in hits:
+            try:
+                source = hit["_source"]
 
-# Query Logs by Action Type
+                timestamp = source.get("timestamp", "")
+                level = source.get("level", "")
+                logger_name = source.get("logger", "")
+                user = source.get("user", "")
+                user_full_name = source.get("user_full_name", "")
+                action = source.get("action", "")
+                log_text = source.get("log_text", "")
+                role = source.get("role", "")
 
-def get_logs_by_action_and_user(action: str, full_name: str):
-    query = {
-        "query": {
-            "bool": {
-                "must": [
-                    {"match": {"action": action}},
-                    {"match_phrase": {"user_full_name": full_name}}
-                ]
-            }
-        },
-        "sort": [{"@timestamp": {"order": "desc"}}],
-        "size": 50
-    }
+                # Create standardized LogDocument
+                log = LogDocument(
+                    timestamp=timestamp,
+                    method=action,
+                    table="User",
+                    user=user,
+                    user_full_name=user_full_name,
+                    message=log_text,
+                    role=role,
+                )
+                logs.append(log)
 
-    response = es_service.search_documents(index="logs-*", body=query)
-    hits = response["hits"]["hits"]
+            except Exception as e:
+                logger.error(f"Could not read login log: {str(e)}")
+                continue
 
-    return [hit["_source"] for hit in hits]
+        totalRecords = response.get('hits', {}).get('total', {}).get('value', 0)
+        totalPages = math.ceil(totalRecords / pageSize) if pageSize > 0 else 0
+
+        return logs, totalRecords, totalPages
+
+    except Exception as e:
+        logger.error(f"Error querying Elasticsearch for login logs: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error querying Elasticsearch: {str(e)}"
+        )
