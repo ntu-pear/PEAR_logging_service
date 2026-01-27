@@ -12,3 +12,4 @@ class LogDocument(BaseModel):
     original_data: Optional[dict] = None
     updated_data: Optional[dict] = None
     message: str
+    role: str = None # User logs
