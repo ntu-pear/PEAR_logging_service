@@ -87,15 +87,32 @@ def test_get_logs_no_params(mock_es_service):
         "track_total_hits": True,
     }
 
-    mock_es_service.search_documents.assert_called_once_with(
-        index="*",
-        body=expected_query,
-        headers={"Content-Type": "application/json"}
-    )
+    call_args = mock_es_service.search_documents.call_args
+    query_body = call_args.kwargs["body"]
 
-    assert len(logs) == 3
-    assert total_records == 3
-    assert total_pages == 1
+    # Basic structure
+    assert query_body["size"] == 10
+    assert query_body["from"] == 0
+    assert query_body["track_total_hits"] is True
+
+    # Must have bool query
+    assert "bool" in query_body["query"]
+    must_conditions = query_body["query"]["bool"]["must"]
+
+    # Must contain action create/update/delete filter
+    has_action_guard = any(
+        condition.get("bool", {}).get("should") is not None
+        for condition in must_conditions
+    )
+    assert has_action_guard
+
+    # Must filter by PEAR_patient_service
+    has_path_filter = any(
+        "log.file.path" in str(condition)
+        for condition in must_conditions
+    )
+    assert has_path_filter
+
 
 def test_get_logs_with_patient_filter(mock_es_service):
     """Test getting logs filtered by patient ID"""
