@@ -434,8 +434,6 @@ def get_logs_by_param_user(
                 source = hit["_source"]
 
                 timestamp = source.get("timestamp", "")
-                level = source.get("level", "")
-                logger_name = source.get("logger", "")
                 user = source.get("user", "")
                 user_full_name = source.get("user_full_name", "")
                 action = source.get("action", "")

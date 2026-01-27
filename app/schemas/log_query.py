@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field
 class LogQuery(BaseModel):
     action: Optional[str] = Field(None, description="Action type")
     user: Optional[str] = Field(None, description="User performing the action")
+    user_full_name: Optional[str] = Field(None, description="Full name of the user")
     table: Optional[str] = Field(None, description="Target database table")
     patient: Optional[str] = Field(None, description="Patient ID")
     activity: Optional[int] = Field(None, description="Activity ID")  # For activity logs
