@@ -40,6 +40,15 @@ def get_logs_by_param_patient(query: LogQuery, pageNo: int = 0, pageSize: int = 
         }
     })
 
+    # Exclude system config logs (ensure only patient logs are being retrieved)
+    must_conditions.append({
+        "bool": {
+            "must_not": [
+                {"match": {"is_system_config": True}}
+            ]
+        }
+    })
+
     if query.action:
         must_conditions.append({"match_phrase": {"message": f"\"action\": \"{query.action}\""}})
     if query.user:
