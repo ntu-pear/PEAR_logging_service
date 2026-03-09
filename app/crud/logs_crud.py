@@ -44,7 +44,7 @@ def get_logs_by_param_patient(query: LogQuery, pageNo: int = 0, pageSize: int = 
     must_conditions.append({
         "bool": {
             "must_not": [
-                {"match": {"is_system_config": True}}
+                {"term": {"is_system_config": True}}
             ]
         }
     })
@@ -132,7 +132,6 @@ def get_logs_by_param_patient(query: LogQuery, pageNo: int = 0, pageSize: int = 
                 source = hit["_source"]
                 message_str = source.get("message", "")
 
-                logger.info(f"DEBUG: ES source keys: {list(source.keys())}")
                 if isinstance(message_str, dict):
                     # If it's already a dict, use it directly
                     parsed_message = message_str
@@ -140,16 +139,12 @@ def get_logs_by_param_patient(query: LogQuery, pageNo: int = 0, pageSize: int = 
                     # Try parsing as JSON first (most logs are proper JSON)
                     try:
                         parsed_message = json.loads(message_str)
-                        logger.info(f"DEBUG: Parsed with json.loads, keys: {list(parsed_message.keys())}")
                     except Exception as e:
-                        logger.info(f"DEBUG: json.loads failed: {e}")
                         # Try ast.literal_eval for Python dict syntax with single quotes
                         try:
                             import ast
                             parsed_message = ast.literal_eval(message_str)
-                            logger.info(f"DEBUG: Parsed with ast.literal_eval, keys: {list(parsed_message.keys())}")
                         except Exception as e2:
-                            logger.info(f"DEBUG: ast.literal_eval failed: {e2}")
                             # Last resort: try to fix the JSON
                             try:
                                 fixed = message_str.replace("None", "null")
@@ -157,7 +152,6 @@ def get_logs_by_param_patient(query: LogQuery, pageNo: int = 0, pageSize: int = 
                                 fixed = fixed.replace("'", '"')
                                 fixed = fixed.replace('\\"', "'")
                                 parsed_message = json.loads(fixed)
-                                logger.info(f"DEBUG: Parsed with fallback, keys: {list(parsed_message.keys())}")
                             except Exception as parse_error:
                                 logger.error(f"Failed to parse message: {str(parse_error)}")
                                 logger.error(f"Message content: {message_str[:200]}")
@@ -175,9 +169,6 @@ def get_logs_by_param_patient(query: LogQuery, pageNo: int = 0, pageSize: int = 
                 log_type = parsed_message.get("log_type", "")
                 is_system_config = parsed_message.get("is_system_config", False)
                 patient_full_name = parsed_message.get("patient_full_name", "")
-
-                logger.info(f"DEBUG: parsed_message keys: {list(parsed_message.keys())}")
-                logger.info(f"DEBUG: patient_full_name value: '{patient_full_name}'")
 
                 # Parse inner message field
                 inner_message = parsed_message.get("message", {})
