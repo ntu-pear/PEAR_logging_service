@@ -132,6 +132,7 @@ def get_logs_by_param_patient(query: LogQuery, pageNo: int = 0, pageSize: int = 
                 source = hit["_source"]
                 message_str = source.get("message", "")
 
+                logger.info(f"DEBUG: ES source keys: {list(source.keys())}")
                 if isinstance(message_str, dict):
                     # If it's already a dict, use it directly
                     parsed_message = message_str
