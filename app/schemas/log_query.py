@@ -8,6 +8,7 @@ class LogQuery(BaseModel):
     table: Optional[str] = Field(None, description="Target database table")
     patient: Optional[str] = Field(None, description="Patient ID")
     patient_full_name: Optional[str] = Field(None, description="Patient name")
+    log_type: Optional[str] = Field(None, description="Log type")
     activity: Optional[int] = Field(None, description="Activity ID")  # For activity logs
     timestamp_order: Literal["asc", "desc"] = Field("desc", description="Sort order")
     start_date: Optional[str] = Field(None, description="Start timestamp of the log entry")
