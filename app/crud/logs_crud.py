@@ -97,7 +97,7 @@ def get_logs_by_param_patient(query: LogQuery, pageNo: int = 0, pageSize: int = 
                 "minimum_should_match": 1
             }
         })
-    if query.patient_name:
+    if query.patient_full_name:
         must_conditions.append({
             "match_phrase": {"message": f"'patient_full_name': {query.patient_full_name}"}
         })
