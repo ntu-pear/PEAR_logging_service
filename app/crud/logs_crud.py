@@ -113,7 +113,7 @@ def get_logs_by_param_patient(query: LogQuery, pageNo: int = 0, pageSize: int = 
 
         must_conditions.append(range_filter)
 
-    query = {
+    es_query = {
         "query": {"bool": {"must": must_conditions}} if must_conditions else {"match_all": {}},
         "size": pageSize,
         "from": offset,
@@ -124,7 +124,7 @@ def get_logs_by_param_patient(query: LogQuery, pageNo: int = 0, pageSize: int = 
     }
 
     try:
-        response = es_service.search_documents(index="*", body=query, headers={"Content-Type": "application/json"})
+        response = es_service.search_documents(index="*", body=es_query, headers={"Content-Type": "application/json"})
         hits = response.get('hits', {}).get('hits', [])
         logs = []
         for hit in hits:
@@ -133,29 +133,46 @@ def get_logs_by_param_patient(query: LogQuery, pageNo: int = 0, pageSize: int = 
                 message_str = source.get("message", "")
 
                 if isinstance(message_str, dict):
-                    # If it's already a dict, use it directly
                     parsed_message = message_str
                 else:
-                    # Try parsing as JSON first (most logs are proper JSON)
+                    parsed_message = None
+
+                    # Attempt 1: strict JSON
                     try:
                         parsed_message = json.loads(message_str)
-                    except Exception as e:
-                        # Try ast.literal_eval for Python dict syntax with single quotes
+                    except Exception:
+                        pass
+
+                    # Attempt 2: Python dict parsing
+                    if parsed_message is None:
                         try:
                             import ast
                             parsed_message = ast.literal_eval(message_str)
-                        except Exception as e2:
-                            # Last resort: try to fix the JSON
-                            try:
-                                fixed = message_str.replace("None", "null")
-                                fixed = fixed.replace("True", "true").replace("False", "false")
-                                fixed = fixed.replace("'", '"')
-                                fixed = fixed.replace('\\"', "'")
-                                parsed_message = json.loads(fixed)
-                            except Exception as parse_error:
-                                logger.error(f"Failed to parse message: {str(parse_error)}")
-                                logger.error(f"Message content: {message_str[:200]}")
-                                continue
+                        except Exception:
+                            pass
+
+                    # Attempt 3: clean problematic Python syntax
+                    if parsed_message is None:
+                        try:
+                            fixed = message_str
+
+                            # Convert Python literals
+                            fixed = fixed.replace("None", "null")
+                            fixed = fixed.replace("True", "true")
+                            fixed = fixed.replace("False", "false")
+
+                            # Remove Enum objects like <PrivacyStatus.MEDIUM: 2>
+                            fixed = re.sub(r"<[^>]+:\s*(\d+)>", r"\1", fixed)
+
+                            # Replace single quotes with double quotes
+                            fixed = fixed.replace("'", '"')
+
+                            parsed_message = json.loads(fixed)
+
+                        except Exception as parse_error:
+                            logger.warning(f"Skipping unparsable log: {str(parse_error)}")
+                            logger.warning(f"Message snippet: {message_str[:200]}")
+                            continue
 
                 # Extract data from parsed JSON
                 timestamp = parsed_message.get("timestamp", "")
