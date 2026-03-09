@@ -136,22 +136,31 @@ def get_logs_by_param_patient(query: LogQuery, pageNo: int = 0, pageSize: int = 
                     # If it's already a dict, use it directly
                     parsed_message = message_str
                 else:
-                    # Use ast.literal_eval which handles Python dict syntax with single quotes and None
+                    # Try parsing as JSON first (most logs are proper JSON)
                     try:
-                        import ast
-                        parsed_message = ast.literal_eval(message_str)
-                    except:
-                        # Last resort: try to fix the JSON
+                        parsed_message = json.loads(message_str)
+                        logger.info(f"DEBUG: Parsed with json.loads, keys: {list(parsed_message.keys())}")
+                    except Exception as e:
+                        logger.info(f"DEBUG: json.loads failed: {e}")
+                        # Try ast.literal_eval for Python dict syntax with single quotes
                         try:
-                            fixed = message_str.replace("None", "null")
-                            fixed = fixed.replace("True", "true").replace("False", "false")
-                            fixed = fixed.replace("'", '"')
-                            fixed = fixed.replace('\\"', "'")
-                            parsed_message = json.loads(fixed)
-                        except Exception as parse_error:
-                            logger.error(f"Failed to parse message: {str(parse_error)}")
-                            logger.error(f"Message content: {message_str[:200]}")
-                            continue
+                            import ast
+                            parsed_message = ast.literal_eval(message_str)
+                            logger.info(f"DEBUG: Parsed with ast.literal_eval, keys: {list(parsed_message.keys())}")
+                        except Exception as e2:
+                            logger.info(f"DEBUG: ast.literal_eval failed: {e2}")
+                            # Last resort: try to fix the JSON
+                            try:
+                                fixed = message_str.replace("None", "null")
+                                fixed = fixed.replace("True", "true").replace("False", "false")
+                                fixed = fixed.replace("'", '"')
+                                fixed = fixed.replace('\\"', "'")
+                                parsed_message = json.loads(fixed)
+                                logger.info(f"DEBUG: Parsed with fallback, keys: {list(parsed_message.keys())}")
+                            except Exception as parse_error:
+                                logger.error(f"Failed to parse message: {str(parse_error)}")
+                                logger.error(f"Message content: {message_str[:200]}")
+                                continue
 
                 # Extract data from parsed JSON
                 timestamp = parsed_message.get("timestamp", "")
