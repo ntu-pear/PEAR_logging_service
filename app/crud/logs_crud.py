@@ -166,6 +166,9 @@ def get_logs_by_param_patient(query: LogQuery, pageNo: int = 0, pageSize: int = 
                 is_system_config = parsed_message.get("is_system_config", False)
                 patient_full_name = parsed_message.get("patient_full_name", "")
 
+                logger.info(f"DEBUG: parsed_message keys: {list(parsed_message.keys())}")
+                logger.info(f"DEBUG: patient_full_name value: '{patient_full_name}'")
+
                 # Parse inner message field
                 inner_message = parsed_message.get("message", {})
                 if isinstance(inner_message, str):
