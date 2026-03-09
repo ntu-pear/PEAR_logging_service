@@ -40,6 +40,15 @@ def get_logs_by_param_patient(query: LogQuery, pageNo: int = 0, pageSize: int = 
         }
     })
 
+    # Exclude system config logs (ensure only patient logs are being retrieved)
+    must_conditions.append({
+        "bool": {
+            "must_not": [
+                {"match": {"is_system_config": True}}
+            ]
+        }
+    })
+
     if query.action:
         must_conditions.append({"match_phrase": {"message": f"\"action\": \"{query.action}\""}})
     if query.user:
@@ -87,6 +96,10 @@ def get_logs_by_param_patient(query: LogQuery, pageNo: int = 0, pageSize: int = 
                 ],
                 "minimum_should_match": 1
             }
+        })
+    if query.patient_name:
+        must_conditions.append({
+            "match_phrase": {"patient_full_name": f"\"{query.patient_name}\""}
         })
 
     # Add timestamp range filter
@@ -148,7 +161,10 @@ def get_logs_by_param_patient(query: LogQuery, pageNo: int = 0, pageSize: int = 
                 user_full_name = parsed_message.get("user_full_name", "")
                 table = parsed_message.get("table", "")
                 action = parsed_message.get("action", "")
-                log_text = parsed_message.get("log_text", "")
+                message = parsed_message.get("log_text", "")
+                log_type = parsed_message.get("log_type", "")
+                is_system_config = parsed_message.get("is_system_config", False)
+                patient_full_name = parsed_message.get("patient_full_name", "")
 
                 # Parse inner message field
                 inner_message = parsed_message.get("message", {})
@@ -187,9 +203,12 @@ def get_logs_by_param_patient(query: LogQuery, pageNo: int = 0, pageSize: int = 
                     method=action,
                     table=table,
                     patient_id=patient_id,
+                    patient_full_name=patient_full_name,
                     user=user,
                     user_full_name=user_full_name,
-                    message=log_text,
+                    message=message,
+                    log_type = log_type,
+                    is_system_config=is_system_config,
                     original_data=original_data,
                     updated_data=updated_data
                 )
