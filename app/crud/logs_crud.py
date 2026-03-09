@@ -104,6 +104,11 @@ def get_logs_by_param_patient(query: LogQuery, pageNo: int = 0, pageSize: int = 
             "match_phrase": {"message": f"'patient_full_name': {query.patient_full_name}"}
         })
 
+    if query.log_type:
+        must_conditions.append({
+            "match_phrase": {"message": f"'log_type': {query.log_type}"}
+        })
+
     # Add timestamp range filter
     if query.start_date or query.end_date:
         range_filter = {"range": {"@timestamp": {}}}
