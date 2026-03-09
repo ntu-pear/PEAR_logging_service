@@ -161,13 +161,10 @@ def get_logs_by_param_patient(query: LogQuery, pageNo: int = 0, pageSize: int = 
                 user_full_name = parsed_message.get("user_full_name", "")
                 table = parsed_message.get("table", "")
                 action = parsed_message.get("action", "")
-                message = parsed_message.get("message", "")
+                message = parsed_message.get("log_text", "")
                 log_type = parsed_message.get("log_type", "")
                 is_system_config = parsed_message.get("is_system_config", False)
                 patient_full_name = parsed_message.get("patient_full_name", "")
-
-                if not message:
-                    message = parsed_message.get("log_text", "")
 
                 # Parse inner message field
                 inner_message = parsed_message.get("message", {})
