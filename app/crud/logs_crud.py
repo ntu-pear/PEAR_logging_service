@@ -53,6 +53,8 @@ def get_logs_by_param_patient(query: LogQuery, pageNo: int = 0, pageSize: int = 
         must_conditions.append({"match_phrase": {"message": f"\"action\": \"{query.action}\""}})
     if query.user:
         must_conditions.append({"match_phrase": {"message": f"\"user\": \"{query.user}\""}})
+    if query.user_full_name:
+        must_conditions.append({"match_phrase": {"message": f"\"user_full_name\": \"{query.user_full_name}\""}})
     if query.table:
         must_conditions.append({"match_phrase": {"message": f"\"table\": \"{query.table}\""}})
 
