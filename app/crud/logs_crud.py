@@ -44,7 +44,7 @@ def get_logs_by_param_patient(query: LogQuery, pageNo: int = 0, pageSize: int = 
     must_conditions.append({
         "bool": {
             "must_not": [
-                {"term": {"is_system_config": True}}
+                {"match_phrase": {"message": f"\"is_system_config\": False"}}
             ]
         }
     })
