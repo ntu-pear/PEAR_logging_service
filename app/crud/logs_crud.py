@@ -99,7 +99,7 @@ def get_logs_by_param_patient(query: LogQuery, pageNo: int = 0, pageSize: int = 
         })
     if query.patient_name:
         must_conditions.append({
-            "match_phrase": {"patient_full_name": f"\"{query.patient_name}\""}
+            "match_phrase": {"message": query.patient_name}
         })
 
     # Add timestamp range filter
