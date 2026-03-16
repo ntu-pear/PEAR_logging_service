@@ -39,3 +39,19 @@ def get_user_logs(query: LogQuery = Depends(),
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error querying Elasticsearch: {e}")
+
+@router.get("/Logs/System", response_model=PaginatedResponse[LogDocument], description="Get all system configuration logs from patient and activity services")
+def get_logs_by_param_system(query: LogQuery = Depends(), pageNo: int = 0, pageSize: int = 10):
+    if pageSize > 100:
+        pageSize = 100
+    try:
+        db_logs, totalRecords, totalPages = logs_crud.get_logs_by_param_system(query, pageNo, pageSize)
+        return PaginatedResponse(
+            data=db_logs,
+            pageNo=pageNo,
+            pageSize=pageSize,
+            totalRecords=totalRecords,
+            totalPages=totalPages
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error querying Elasticsearch: {e}")
