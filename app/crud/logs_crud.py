@@ -289,6 +289,21 @@ def get_logs_by_param_activity(query: LogQuery, pageNo: int = 0, pageSize: int =
         must_conditions.append({"match_phrase": {"message": f"\"user\": \"{query.user}\""}})
     if query.table:
         must_conditions.append({"match_phrase": {"message": f"\"table\": \"{query.table}\""}})
+    if query.log_type:
+        must_conditions.append({"match_phrase": {"message": f"\"log_type\": \"{query.log_type}\""}})
+    if query.patient:
+        must_conditions.append({"match_phrase": {"message": f"\"patient_id\": \"{query.patient}\""}})
+    if query.patient_full_name:
+        must_conditions.append({"match_phrase": {"message": f"\"patient_full_name\": \"{query.patient_full_name}\""}})
+
+    # Only patient-related activity logs (is_system_config = False)
+    must_conditions.append({
+        "bool": {
+            "must_not": [
+                {"match_phrase": {"message": f"\"is_system_config\": True"}}
+            ]
+        }
+    })
 
     # Handle Activity ID search (entity_id in the logs)
     if query.activity:
@@ -346,20 +361,26 @@ def get_logs_by_param_activity(query: LogQuery, pageNo: int = 0, pageSize: int =
                 if isinstance(message_str, dict):
                     parsed_message = message_str
                 else:
+                    # Try parsing as JSON first (most logs are proper JSON)
                     try:
-                        import ast
-                        parsed_message = ast.literal_eval(message_str)
+                        parsed_message = json.loads(message_str)
                     except:
+                        # Try ast.literal_eval for Python dict syntax with single quotes
                         try:
-                            fixed = message_str.replace("None", "null")
-                            fixed = fixed.replace("True", "true").replace("False", "false")
-                            fixed = fixed.replace("'", '"')
-                            fixed = fixed.replace('\\"', "'")
-                            parsed_message = json.loads(fixed)
-                        except Exception as parse_error:
-                            logger.error(f"Failed to parse message: {str(parse_error)}")
-                            logger.error(f"Message content: {message_str[:200]}")
-                            continue
+                            import ast
+                            parsed_message = ast.literal_eval(message_str)
+                        except:
+                            # Last resort: try to fix the JSON
+                            try:
+                                fixed = message_str.replace("None", "null")
+                                fixed = fixed.replace("True", "true").replace("False", "false")
+                                fixed = fixed.replace("'", '"')
+                                fixed = fixed.replace('\\"', "'")
+                                parsed_message = json.loads(fixed)
+                            except Exception as parse_error:
+                                logger.error(f"Failed to parse message: {str(parse_error)}")
+                                logger.error(f"Message content: {message_str[:200]}")
+                                continue
 
                 # Extract data from parsed JSON
                 timestamp = parsed_message.get("timestamp", "")
@@ -370,6 +391,8 @@ def get_logs_by_param_activity(query: LogQuery, pageNo: int = 0, pageSize: int =
                 table = parsed_message.get("table", "")
                 action = parsed_message.get("action", "")
                 log_text = parsed_message.get("log_text", "")
+                log_type = parsed_message.get("log_type", "")
+                is_system_config = parsed_message.get("is_system_config", False)
 
                 # Parse inner message field
                 inner_message = parsed_message.get("message", {})
@@ -386,15 +409,22 @@ def get_logs_by_param_activity(query: LogQuery, pageNo: int = 0, pageSize: int =
                 updated_data = inner_message.get("updated_data", {})
                 entity_id = inner_message.get("entity_id")
 
+                # Extract patient_id and patient_full_name from root level
+                patient_id = parsed_message.get("patient_id")
+                patient_full_name = parsed_message.get("patient_full_name", "")
+
                 log = LogDocument(
                     timestamp=timestamp,
                     method=action,
                     table=table,
-                    patient_id=None,  # No patient_id for activity logs
+                    patient_id=patient_id,
+                    patient_full_name=patient_full_name,
                     entity_id=entity_id,  # Use entity_id for activity/other entities
                     user=user,
                     user_full_name=user_full_name,
                     message=log_text,
+                    log_type=log_type,
+                    is_system_config=is_system_config,
                     original_data=original_data,
                     updated_data=updated_data
                 )
@@ -411,7 +441,6 @@ def get_logs_by_param_activity(query: LogQuery, pageNo: int = 0, pageSize: int =
     except Exception as e:
         logger.error(f"Error querying Elasticsearch: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error querying Elasticsearch: {str(e)}")
-
 
 def get_logs_by_param_user(
         query: LogQuery,
