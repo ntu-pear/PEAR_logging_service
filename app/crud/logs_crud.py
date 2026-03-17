@@ -526,7 +526,22 @@ def get_logs_by_param_user(
                 seen_messages.add(doc_id)
 
                 # Extract fields directly from source (top-level fields in ES)
-                timestamp = source.get("timestamp", "")
+                # Convert UTC timestamp to SG time
+                raw_timestamp = source.get("timestamp", "")
+                timestamp = raw_timestamp
+                if raw_timestamp:
+                    try:
+                        from datetime import datetime, timedelta
+                        # parse timestamp
+                        if isinstance(raw_timestamp, str):
+                            # handle ISO format
+                            dt = datetime.fromisoformat(raw_timestamp.replace("Z", "+00:00"))
+                            # Add 8 hours
+                            dt_sg = dt + timedelta(hours=8)
+                            timestamp = dt_sg.isoformat()
+                    except Exception:
+                        timestamp = raw_timestamp
+
                 user = source.get("user", "")
                 user_full_name = source.get("user_full_name", "")
                 role = source.get("role", "")
