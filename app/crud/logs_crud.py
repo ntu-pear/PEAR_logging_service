@@ -447,6 +447,7 @@ def get_logs_by_param_user(
         pageNo: int = 0,
         pageSize: int = 10
 ):
+    """Get user service logs (auth events and user data changes)"""
     offset = pageNo * pageSize
     must_conditions = []
 
@@ -454,20 +455,26 @@ def get_logs_by_param_user(
         "match_phrase": {"log.file.path": "PEAR_user_service"}
     })
 
-    # User actions (e.g. login / logout/ change password)
+    # User actions (login, logout, password_change, create, update, delete)
     if query.action:
         must_conditions.append({
-            "match_phrase": {"action": query.action}
+            "match_phrase": {"message": f'"action": "{query.action}"'}
         })
 
     if query.user:
         must_conditions.append({
-            "match_phrase": {"user": query.user}
+            "match_phrase": {"message": f'"user": "{query.user}"'}
         })
 
     if query.user_full_name:
         must_conditions.append({
-            "match_phrase": {"user_full_name": query.user_full_name}
+            "match_phrase": {"message": f'"user_full_name": "{query.user_full_name}"'}
+        })
+
+    # Filter by log_type (auth vs data)
+    if query.log_type:
+        must_conditions.append({
+            "match_phrase": {"message": f'"log_type": "{query.log_type}"'}
         })
 
     # Handle timestamp range filter
@@ -495,7 +502,6 @@ def get_logs_by_param_user(
     }
 
     try:
-        # Assuming es_service is available globally
         response = es_service.search_documents(
             index="logs-*",
             body=es_query,
@@ -504,32 +510,79 @@ def get_logs_by_param_user(
 
         hits = response.get('hits', {}).get('hits', [])
         logs = []
+        seen_messages = set()
 
         for hit in hits:
             try:
                 source = hit["_source"]
+                message_str = source.get("message", "")
 
-                timestamp = source.get("timestamp", "")
-                user = source.get("user", "")
-                user_full_name = source.get("user_full_name", "")
-                action = source.get("action", "")
-                log_text = source.get("log_text", "")
-                role = source.get("role", "")
+                # Skip duplicates
+                if message_str in seen_messages:
+                    continue
+                seen_messages.add(message_str)
+
+                # Parse the message field as JSON
+                if isinstance(message_str, dict):
+                    parsed_message = message_str
+                else:
+                    try:
+                        parsed_message = json.loads(message_str)
+                    except:
+                        try:
+                            import ast
+                            parsed_message = ast.literal_eval(message_str)
+                        except:
+                            try:
+                                fixed = message_str.replace("None", "null")
+                                fixed = fixed.replace("True", "true").replace("False", "false")
+                                fixed = fixed.replace("'", '"')
+                                fixed = fixed.replace('\\"', "'")
+                                parsed_message = json.loads(fixed)
+                            except Exception as parse_error:
+                                logger.error(f"Failed to parse user log: {str(parse_error)}")
+                                continue
+
+                # Extract fields from parsed message
+                timestamp = parsed_message.get("timestamp", "")
+                user = parsed_message.get("user", "")
+                user_full_name = parsed_message.get("user_full_name", "")
+                role = parsed_message.get("role", "")
+                action = parsed_message.get("action", "")
+                log_text = parsed_message.get("log_text", "")
+                table = parsed_message.get("table", "User")
+                log_type = parsed_message.get("log_type", "")
+
+                # Parse log_data for entity_id, original_data, updated_data
+                log_data = parsed_message.get("log_data", {})
+                if isinstance(log_data, str):
+                    try:
+                        log_data = json.loads(log_data)
+                    except:
+                        log_data = {}
+
+                entity_id = log_data.get("entity_id") if log_data else None
+                original_data = log_data.get("original_data") if log_data else None
+                updated_data = log_data.get("updated_data") if log_data else None
 
                 # Create standardized LogDocument
                 log = LogDocument(
                     timestamp=timestamp,
                     method=action,
-                    table="User",
+                    table=table,
                     user=user,
                     user_full_name=user_full_name,
                     message=log_text,
                     role=role,
+                    log_type=log_type,
+                    entity_id=entity_id,
+                    original_data=original_data,
+                    updated_data=updated_data
                 )
                 logs.append(log)
 
             except Exception as e:
-                logger.error(f"Could not read login log: {str(e)}")
+                logger.error(f"Could not read user log: {str(e)}")
                 continue
 
         totalRecords = response.get('hits', {}).get('total', {}).get('value', 0)
@@ -538,11 +591,11 @@ def get_logs_by_param_user(
         return logs, totalRecords, totalPages
 
     except Exception as e:
-        logger.error(f"Error querying Elasticsearch for login logs: {str(e)}")
+        logger.error(f"Error querying Elasticsearch for user logs: {str(e)}")
         raise HTTPException(
             status_code=500,
-            detail=f"Error querying Elasticsearch: {str(e)}"
-        )
+            detail=f"Error querying Elasticsearch: {str(e)}")
+
 def get_logs_by_param_system(
         query: LogQuery,
         pageNo: int = 0,
