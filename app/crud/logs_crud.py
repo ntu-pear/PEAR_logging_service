@@ -469,7 +469,12 @@ def get_logs_by_param_user(
 
     if query.user_full_name:
         must_conditions.append({
-            "match_phrase": {"user_full_name": query.user_full_name}
+            "wildcard": {
+                "user_full_name": {
+                    "value": f"*{query.user_full_name}*",
+                    "case_insensitive": True
+                }
+            }
         })
 
     # Note: log_type is inferred from action, not stored in ES
