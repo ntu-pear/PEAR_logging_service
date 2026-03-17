@@ -455,49 +455,42 @@ def get_logs_by_param_user(
         "match_phrase": {"log.file.path": "PEAR_user_service"}
     })
 
-    # User actions (login, logout, password_change, create, update, delete)
+    # Match against top-level fields now, not inside message JSON
     if query.action:
         must_conditions.append({
-            "match_phrase": {"message": f'"action": "{query.action}"'}
+            "match_phrase": {"action": query.action}
         })
 
     if query.user:
         must_conditions.append({
-            "match_phrase": {"message": f'"user": "{query.user}"'}
+            "match_phrase": {"user": query.user}
         })
 
     if query.user_full_name:
         must_conditions.append({
-            "match_phrase": {"message": f'"user_full_name": "{query.user_full_name}"'}
+            "match_phrase": {"user_full_name": query.user_full_name}
         })
 
-    # Filter by log_type (auth vs data)
     if query.log_type:
         must_conditions.append({
-            "match_phrase": {"message": f'"log_type": "{query.log_type}"'}
+            "match_phrase": {"log_type": query.log_type}
         })
 
-    # Handle timestamp range filter
     if query.start_date or query.end_date:
         range_filter = {"range": {"@timestamp": {}}}
-
         if query.start_date:
             range_filter["range"]["@timestamp"]["gte"] = query.start_date
         if query.end_date:
             range_filter["range"]["@timestamp"]["lte"] = query.end_date
-
         must_conditions.append(range_filter)
 
-    # Build Elasticsearch query
     es_query = {
         "query": {
             "bool": {"must": must_conditions}
         } if must_conditions else {"match_all": {}},
         "size": pageSize,
         "from": offset,
-        "sort": [
-            {"@timestamp": {"order": query.timestamp_order}}
-        ],
+        "sort": [{"@timestamp": {"order": query.timestamp_order}}],
         "track_total_hits": True,
     }
 
@@ -510,62 +503,46 @@ def get_logs_by_param_user(
 
         hits = response.get('hits', {}).get('hits', [])
         logs = []
-        seen_messages = set()
+        seen_ids = set()
 
         for hit in hits:
             try:
-                source = hit["_source"]
-                message_str = source.get("message", "")
-
-                # Skip duplicates
-                if message_str in seen_messages:
+                # Deduplicate by document ID instead of message string
+                doc_id = hit.get("_id")
+                if doc_id in seen_ids:
                     continue
-                seen_messages.add(message_str)
+                seen_ids.add(doc_id)
 
-                # Parse the message field as JSON
-                if isinstance(message_str, dict):
-                    parsed_message = message_str
-                else:
+                source = hit["_source"]
+
+                # Fields are now top-level in _source
+                timestamp = source.get("timestamp", "")
+                user = source.get("user", "")
+                user_full_name = source.get("user_full_name", "")
+                role = source.get("role", "")
+                action = source.get("action", "")
+                log_text = source.get("log_text", "")
+                table = source.get("table", "User")
+                log_type = source.get("log_type", "")
+
+                # message now holds entity data: entity_id, original_data, updated_data
+                entity_id = None
+                original_data = None
+                updated_data = None
+
+                message_str = source.get("message", "")
+                if message_str:
                     try:
-                        parsed_message = json.loads(message_str)
-                    except:
-                        try:
-                            import ast
-                            parsed_message = ast.literal_eval(message_str)
-                        except:
-                            try:
-                                fixed = message_str.replace("None", "null")
-                                fixed = fixed.replace("True", "true").replace("False", "false")
-                                fixed = fixed.replace("'", '"')
-                                fixed = fixed.replace('\\"', "'")
-                                parsed_message = json.loads(fixed)
-                            except Exception as parse_error:
-                                logger.error(f"Failed to parse user log: {str(parse_error)}")
-                                continue
+                        if isinstance(message_str, dict):
+                            msg_data = message_str
+                        else:
+                            msg_data = json.loads(message_str)
+                        entity_id = msg_data.get("entity_id")
+                        original_data = msg_data.get("original_data")
+                        updated_data = msg_data.get("updated_data")
+                    except Exception as parse_error:
+                        logger.warning(f"Could not parse message JSON: {str(parse_error)}")
 
-                # Extract fields from parsed message
-                timestamp = parsed_message.get("timestamp", "")
-                user = parsed_message.get("user", "")
-                user_full_name = parsed_message.get("user_full_name", "")
-                role = parsed_message.get("role", "")
-                action = parsed_message.get("action", "")
-                log_text = parsed_message.get("log_text", "")
-                table = parsed_message.get("table", "User")
-                log_type = parsed_message.get("log_type", "")
-
-                # Parse log_data for entity_id, original_data, updated_data
-                log_data = parsed_message.get("log_data", {})
-                if isinstance(log_data, str):
-                    try:
-                        log_data = json.loads(log_data)
-                    except:
-                        log_data = {}
-
-                entity_id = log_data.get("entity_id") if log_data else None
-                original_data = log_data.get("original_data") if log_data else None
-                updated_data = log_data.get("updated_data") if log_data else None
-
-                # Create standardized LogDocument
                 log = LogDocument(
                     timestamp=timestamp,
                     method=action,
@@ -587,7 +564,6 @@ def get_logs_by_param_user(
 
         totalRecords = response.get('hits', {}).get('total', {}).get('value', 0)
         totalPages = math.ceil(totalRecords / pageSize) if pageSize > 0 else 0
-
         return logs, totalRecords, totalPages
 
     except Exception as e:
