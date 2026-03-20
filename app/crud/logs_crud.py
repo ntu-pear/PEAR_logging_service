@@ -476,6 +476,15 @@ def get_logs_by_param_user(
                 }
             }
         })
+    if query.role:
+        must_conditions.append({
+            "wildcard": {
+                "role": {
+                    "value": f"*{query.role}*",
+                    "case_insensitive": True
+                }
+            }
+        })
 
     # Note: log_type is inferred from action, not stored in ES
     # We filter by log_type in Python code after parsing
