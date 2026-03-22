@@ -4,8 +4,13 @@ from pydantic import BaseModel, Field
 class LogQuery(BaseModel):
     action: Optional[str] = Field(None, description="Action type")
     user: Optional[str] = Field(None, description="User performing the action")
+    user_full_name: Optional[str] = Field(None, description="Full name of the user")
+    role:Optional[str] = Field(None, description="Role of the user")
     table: Optional[str] = Field(None, description="Target database table")
     patient: Optional[str] = Field(None, description="Patient ID")
+    patient_full_name: Optional[str] = Field(None, description="Patient name")
+    log_type: Optional[str] = Field(None, description="Log type")
+    activity: Optional[int] = Field(None, description="Activity ID")  # For activity logs
     timestamp_order: Literal["asc", "desc"] = Field("desc", description="Sort order")
     start_date: Optional[str] = Field(None, description="Start timestamp of the log entry")
     end_date: Optional[str] = Field(None, description="End timestamp of the log entry")

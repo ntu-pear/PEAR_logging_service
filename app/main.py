@@ -3,12 +3,13 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.routers.logs import router as logs_router
 
-app = FastAPI()
+app = FastAPI(title="PEAR Logger Service", description="Logger Service API Documentation")
 app.include_router(logs_router, prefix="/api")
 
 origins = [
     "http://localhost:5173",
-    "http://10.96.188.171:5173"
+    "http://10.96.188.171:5173",
+    "http://10.96.188.185:5173"
 ]
 
 # Middleware for CORS
@@ -19,7 +20,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
+#
 @app.get("/")
 async def root():
     return {"message": "Welcome to PEAR Logging Service!"}
