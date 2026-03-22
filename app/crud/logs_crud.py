@@ -114,9 +114,21 @@ def get_logs_by_param_patient(query: LogQuery, pageNo: int = 0, pageSize: int = 
         range_filter = {"range": {"@timestamp": {}}}
 
         if query.start_date:
-            range_filter["range"]["@timestamp"]["gte"] = query.start_date
+            try:
+                from datetime import datetime, timedelta
+                dt = datetime.fromisoformat(query.start_date.replace("Z", "+00:00"))
+                dt_utc = dt - timedelta(hours=8)
+                range_filter["range"]["@timestamp"]["gte"] = dt_utc.isoformat()
+            except:
+                range_filter["range"]["@timestamp"]["gte"] = query.start_date
         if query.end_date:
-            range_filter["range"]["@timestamp"]["lte"] = query.end_date
+            try:
+                from datetime import datetime, timedelta
+                dt = datetime.fromisoformat(query.end_date.replace("Z", "+00:00"))
+                dt_utc = dt - timedelta(hours=8)
+                range_filter["range"]["@timestamp"]["gte"] = dt_utc.isoformat()
+            except:
+                range_filter["range"]["@timestamp"]["gte"] = query.end_date
 
         must_conditions.append(range_filter)
 
@@ -322,9 +334,21 @@ def get_logs_by_param_activity(query: LogQuery, pageNo: int = 0, pageSize: int =
         range_filter = {"range": {"@timestamp": {}}}
 
         if query.start_date:
-            range_filter["range"]["@timestamp"]["gte"] = query.start_date
+            try:
+                from datetime import datetime, timedelta
+                dt = datetime.fromisoformat(query.start_date.replace("Z", "+00:00"))
+                dt_utc = dt - timedelta(hours=8)
+                range_filter["range"]["@timestamp"]["gte"] = dt_utc.isoformat()
+            except:
+                range_filter["range"]["@timestamp"]["gte"] = query.start_date
         if query.end_date:
-            range_filter["range"]["@timestamp"]["lte"] = query.end_date
+            try:
+                from datetime import datetime, timedelta
+                dt = datetime.fromisoformat(query.end_date.replace("Z", "+00:00"))
+                dt_utc = dt - timedelta(hours=8)
+                range_filter["range"]["@timestamp"]["gte"] = dt_utc.isoformat()
+            except:
+                range_filter["range"]["@timestamp"]["gte"] = query.end_date
 
         must_conditions.append(range_filter)
 
@@ -494,9 +518,21 @@ def get_logs_by_param_user(
         range_filter = {"range": {"@timestamp": {}}}
 
         if query.start_date:
-            range_filter["range"]["@timestamp"]["gte"] = query.start_date
+            try:
+                from datetime import datetime, timedelta
+                dt = datetime.fromisoformat(query.start_date.replace("Z", "+00:00"))
+                dt_utc = dt - timedelta(hours=8)
+                range_filter["range"]["@timestamp"]["gte"] = dt_utc.isoformat()
+            except:
+                range_filter["range"]["@timestamp"]["gte"] = query.start_date
         if query.end_date:
-            range_filter["range"]["@timestamp"]["lte"] = query.end_date
+            try:
+                from datetime import datetime, timedelta
+                dt = datetime.fromisoformat(query.end_date.replace("Z", "+00:00"))
+                dt_utc = dt - timedelta(hours=8)
+                range_filter["range"]["@timestamp"]["gte"] = dt_utc.isoformat()
+            except:
+                range_filter["range"]["@timestamp"]["gte"] = query.end_date
 
         must_conditions.append(range_filter)
 
@@ -688,9 +724,21 @@ def get_logs_by_param_system(
         range_filter = {"range": {"@timestamp": {}}}
 
         if query.start_date:
-            range_filter["range"]["@timestamp"]["gte"] = query.start_date
+            try:
+                from datetime import datetime, timedelta
+                dt = datetime.fromisoformat(query.start_date.replace("Z", "+00:00"))
+                dt_utc = dt - timedelta(hours=8)
+                range_filter["range"]["@timestamp"]["gte"] = dt_utc.isoformat()
+            except:
+                range_filter["range"]["@timestamp"]["gte"] = query.start_date
         if query.end_date:
-            range_filter["range"]["@timestamp"]["lte"] = query.end_date
+            try:
+                from datetime import datetime, timedelta
+                dt = datetime.fromisoformat(query.end_date.replace("Z", "+00:00"))
+                dt_utc = dt - timedelta(hours=8)
+                range_filter["range"]["@timestamp"]["gte"] = dt_utc.isoformat()
+            except:
+                range_filter["range"]["@timestamp"]["gte"] = query.end_date
 
         must_conditions.append(range_filter)
 
