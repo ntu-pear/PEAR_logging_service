@@ -116,18 +116,28 @@ def get_logs_by_param_patient(query: LogQuery, pageNo: int = 0, pageSize: int = 
         if query.start_date:
             try:
                 from datetime import datetime, timedelta
-                dt = datetime.fromisoformat(query.start_date.replace("Z", "+00:00"))
+                start_str = query.start_date.strip()
+                if 'T' in start_str or ' ' in start_str:
+                    dt = datetime.fromisoformat(start_str.replace('Z', '+00:00'))
+                else:
+                    dt = datetime.fromisoformat(start_str + 'T00:00:00')
                 dt_utc = dt - timedelta(hours=8)
                 range_filter["range"]["@timestamp"]["gte"] = dt_utc.isoformat()
-            except:
+            except Exception as e:
+                logger.warning(f"Failed to parse start date {query.start_date}: {e}")
                 range_filter["range"]["@timestamp"]["gte"] = query.start_date
         if query.end_date:
             try:
                 from datetime import datetime, timedelta
-                dt = datetime.fromisoformat(query.end_date.replace("Z", "+00:00"))
+                end_str = query.end_date.strip()
+                if 'T' in end_str or ' ' in end_str:
+                    dt = datetime.fromisoformat(end_str.replace('Z', '+00:00'))
+                else:
+                    dt = datetime.fromisoformat(end_str + 'T23:59:59')
                 dt_utc = dt - timedelta(hours=8)
                 range_filter["range"]["@timestamp"]["lte"] = dt_utc.isoformat()
-            except:
+            except Exception as e:
+                logger.warning(f"Failed to parse end date {query.end_date}: {e}")
                 range_filter["range"]["@timestamp"]["lte"] = query.end_date
 
         must_conditions.append(range_filter)
@@ -195,6 +205,31 @@ def get_logs_by_param_patient(query: LogQuery, pageNo: int = 0, pageSize: int = 
 
                 # Extract data from parsed JSON
                 timestamp = parsed_message.get("timestamp", "")
+                # Filter by date range (using log timestamp, not @timestamp)
+                if query.start_date or query.end_date:
+                    try:
+                        from datetime import datetime
+                        log_dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+
+                        if query.start_date:
+                            start_str = query.start_date.strip()
+                            if 'T' in start_str or ' ' in start_str:
+                                start_dt = datetime.fromisoformat(start_str.replace('Z', '+00:00'))
+                            else:
+                                start_dt = datetime.fromisoformat(start_str + 'T00:00:00')
+                            if log_dt < start_dt:
+                                continue
+
+                        if query.end_date:
+                            end_str = query.end_date.strip()
+                            if 'T' in end_str or ' ' in end_str:
+                                end_dt = datetime.fromisoformat(end_str.replace('Z', '+00:00'))
+                            else:
+                                end_dt = datetime.fromisoformat(end_str + 'T23:59:59')
+                            if log_dt > end_dt:
+                                continue
+                    except Exception as e:
+                        logger.warning(f"Failed to filter by date: {e}")
                 level = parsed_message.get("level", "")
                 logger_name = parsed_message.get("logger", "")
                 user = parsed_message.get("user", "")
@@ -256,7 +291,7 @@ def get_logs_by_param_patient(query: LogQuery, pageNo: int = 0, pageSize: int = 
             except Exception as e:
                 logger.error(f"Could not read log: {str(e)}")
 
-        totalRecords = response.get('hits', {}).get('total', {}).get('value', 0)
+        totalRecords = len(logs)
         totalPages = math.ceil(totalRecords / pageSize) if pageSize > 0 else 0
 
         return logs, totalRecords, totalPages
@@ -336,18 +371,28 @@ def get_logs_by_param_activity(query: LogQuery, pageNo: int = 0, pageSize: int =
         if query.start_date:
             try:
                 from datetime import datetime, timedelta
-                dt = datetime.fromisoformat(query.start_date.replace("Z", "+00:00"))
+                start_str = query.start_date.strip()
+                if 'T' in start_str or ' ' in start_str:
+                    dt = datetime.fromisoformat(start_str.replace('Z', '+00:00'))
+                else:
+                    dt = datetime.fromisoformat(start_str + 'T00:00:00')
                 dt_utc = dt - timedelta(hours=8)
                 range_filter["range"]["@timestamp"]["gte"] = dt_utc.isoformat()
-            except:
+            except Exception as e:
+                logger.warning(f"Failed to parse start date {query.start_date}: {e}")
                 range_filter["range"]["@timestamp"]["gte"] = query.start_date
         if query.end_date:
             try:
                 from datetime import datetime, timedelta
-                dt = datetime.fromisoformat(query.end_date.replace("Z", "+00:00"))
+                end_str = query.end_date.strip()
+                if 'T' in end_str or ' ' in end_str:
+                    dt = datetime.fromisoformat(end_str.replace('Z', '+00:00'))
+                else:
+                    dt = datetime.fromisoformat(end_str + 'T23:59:59')
                 dt_utc = dt - timedelta(hours=8)
                 range_filter["range"]["@timestamp"]["lte"] = dt_utc.isoformat()
-            except:
+            except Exception as e:
+                logger.warning(f"Failed to parse end date {query.end_date}: {e}")
                 range_filter["range"]["@timestamp"]["lte"] = query.end_date
 
         must_conditions.append(range_filter)
@@ -361,6 +406,8 @@ def get_logs_by_param_activity(query: LogQuery, pageNo: int = 0, pageSize: int =
         ],
         "track_total_hits": True,
     }
+
+    logger.info(f"DEBUG Activity ES Query: {json.dumps(es_query, indent=2)}")
 
     try:
         response = es_service.search_documents(index="*", body=es_query, headers={"Content-Type": "application/json"})
@@ -408,6 +455,33 @@ def get_logs_by_param_activity(query: LogQuery, pageNo: int = 0, pageSize: int =
 
                 # Extract data from parsed JSON
                 timestamp = parsed_message.get("timestamp", "")
+
+                # Filter by date range (using log timestamp, not @timestamp)
+                if query.start_date or query.end_date:
+                    try:
+                        from datetime import datetime
+                        log_dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+
+                        if query.start_date:
+                            start_str = query.start_date.strip()
+                            if 'T' in start_str or ' ' in start_str:
+                                start_dt = datetime.fromisoformat(start_str.replace('Z', '+00:00'))
+                            else:
+                                start_dt = datetime.fromisoformat(start_str + 'T00:00:00')
+                            if log_dt < start_dt:
+                                continue
+
+                        if query.end_date:
+                            end_str = query.end_date.strip()
+                            if 'T' in end_str or ' ' in end_str:
+                                end_dt = datetime.fromisoformat(end_str.replace('Z', '+00:00'))
+                            else:
+                                end_dt = datetime.fromisoformat(end_str + 'T23:59:59')
+                            if log_dt > end_dt:
+                                continue
+                    except Exception as e:
+                        logger.warning(f"Failed to filter by date: {e}")
+
                 level = parsed_message.get("level", "")
                 logger_name = parsed_message.get("logger", "")
                 user = parsed_message.get("user", "")
@@ -457,7 +531,7 @@ def get_logs_by_param_activity(query: LogQuery, pageNo: int = 0, pageSize: int =
             except Exception as e:
                 logger.error(f"Could not read log: {str(e)}")
 
-        totalRecords = response.get('hits', {}).get('total', {}).get('value', 0)
+        totalRecords = len(logs)
         totalPages = math.ceil(totalRecords / pageSize) if pageSize > 0 else 0
 
         return logs, totalRecords, totalPages
@@ -520,18 +594,28 @@ def get_logs_by_param_user(
         if query.start_date:
             try:
                 from datetime import datetime, timedelta
-                dt = datetime.fromisoformat(query.start_date.replace("Z", "+00:00"))
+                start_str = query.start_date.strip()
+                if 'T' in start_str or ' ' in start_str:
+                    dt = datetime.fromisoformat(start_str.replace('Z', '+00:00'))
+                else:
+                    dt = datetime.fromisoformat(start_str + 'T00:00:00')
                 dt_utc = dt - timedelta(hours=8)
                 range_filter["range"]["@timestamp"]["gte"] = dt_utc.isoformat()
-            except:
+            except Exception as e:
+                logger.warning(f"Failed to parse start date {query.start_date}: {e}")
                 range_filter["range"]["@timestamp"]["gte"] = query.start_date
         if query.end_date:
             try:
                 from datetime import datetime, timedelta
-                dt = datetime.fromisoformat(query.end_date.replace("Z", "+00:00"))
+                end_str = query.end_date.strip()
+                if 'T' in end_str or ' ' in end_str:
+                    dt = datetime.fromisoformat(end_str.replace('Z', '+00:00'))
+                else:
+                    dt = datetime.fromisoformat(end_str + 'T23:59:59')
                 dt_utc = dt - timedelta(hours=8)
                 range_filter["range"]["@timestamp"]["lte"] = dt_utc.isoformat()
-            except:
+            except Exception as e:
+                logger.warning(f"Failed to parse end date {query.end_date}: {e}")
                 range_filter["range"]["@timestamp"]["lte"] = query.end_date
 
         must_conditions.append(range_filter)
@@ -574,18 +658,31 @@ def get_logs_by_param_user(
                 # Convert UTC timestamp to SG time
                 raw_timestamp = source.get("timestamp", "")
                 timestamp = raw_timestamp
-                if raw_timestamp:
+                # Filter by date range (using log timestamp, not @timestamp)
+                if query.start_date or query.end_date:
                     try:
-                        from datetime import datetime, timedelta
-                        # parse timestamp
-                        if isinstance(raw_timestamp, str):
-                            # handle ISO format
-                            dt = datetime.fromisoformat(raw_timestamp.replace("Z", "+00:00"))
-                            # Add 8 hours
-                            dt_sg = dt + timedelta(hours=8)
-                            timestamp = dt_sg.isoformat()
-                    except Exception:
-                        timestamp = raw_timestamp
+                        from datetime import datetime
+                        log_dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+
+                        if query.start_date:
+                            start_str = query.start_date.strip()
+                            if 'T' in start_str or ' ' in start_str:
+                                start_dt = datetime.fromisoformat(start_str.replace('Z', '+00:00'))
+                            else:
+                                start_dt = datetime.fromisoformat(start_str + 'T00:00:00')
+                            if log_dt < start_dt:
+                                continue
+
+                        if query.end_date:
+                            end_str = query.end_date.strip()
+                            if 'T' in end_str or ' ' in end_str:
+                                end_dt = datetime.fromisoformat(end_str.replace('Z', '+00:00'))
+                            else:
+                                end_dt = datetime.fromisoformat(end_str + 'T23:59:59')
+                            if log_dt > end_dt:
+                                continue
+                    except Exception as e:
+                        logger.warning(f"Failed to filter by date: {e}")
 
                 user = source.get("user", "")
                 user_full_name = source.get("user_full_name", "")
@@ -640,7 +737,7 @@ def get_logs_by_param_user(
                 logger.error(f"Could not read user log: {str(e)}")
                 continue
 
-        totalRecords = response.get('hits', {}).get('total', {}).get('value', 0)
+        totalRecords = len(logs)
         totalPages = math.ceil(totalRecords / pageSize) if pageSize > 0 else 0
 
         return logs, totalRecords, totalPages
@@ -726,18 +823,28 @@ def get_logs_by_param_system(
         if query.start_date:
             try:
                 from datetime import datetime, timedelta
-                dt = datetime.fromisoformat(query.start_date.replace("Z", "+00:00"))
+                start_str = query.start_date.strip()
+                if 'T' in start_str or ' ' in start_str:
+                    dt = datetime.fromisoformat(start_str.replace('Z', '+00:00'))
+                else:
+                    dt = datetime.fromisoformat(start_str + 'T00:00:00')
                 dt_utc = dt - timedelta(hours=8)
                 range_filter["range"]["@timestamp"]["gte"] = dt_utc.isoformat()
-            except:
+            except Exception as e:
+                logger.warning(f"Failed to parse start date {query.start_date}: {e}")
                 range_filter["range"]["@timestamp"]["gte"] = query.start_date
         if query.end_date:
             try:
                 from datetime import datetime, timedelta
-                dt = datetime.fromisoformat(query.end_date.replace("Z", "+00:00"))
+                end_str = query.end_date.strip()
+                if 'T' in end_str or ' ' in end_str:
+                    dt = datetime.fromisoformat(end_str.replace('Z', '+00:00'))
+                else:
+                    dt = datetime.fromisoformat(end_str + 'T23:59:59')
                 dt_utc = dt - timedelta(hours=8)
                 range_filter["range"]["@timestamp"]["lte"] = dt_utc.isoformat()
-            except:
+            except Exception as e:
+                logger.warning(f"Failed to parse end date {query.end_date}: {e}")
                 range_filter["range"]["@timestamp"]["lte"] = query.end_date
 
         must_conditions.append(range_filter)
@@ -796,6 +903,31 @@ def get_logs_by_param_system(
 
                 # Extract data from parsed JSON
                 timestamp = parsed_message.get("timestamp", "")
+                # Filter by date range (using log timestamp, not @timestamp)
+                if query.start_date or query.end_date:
+                    try:
+                        from datetime import datetime
+                        log_dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+
+                        if query.start_date:
+                            start_str = query.start_date.strip()
+                            if 'T' in start_str or ' ' in start_str:
+                                start_dt = datetime.fromisoformat(start_str.replace('Z', '+00:00'))
+                            else:
+                                start_dt = datetime.fromisoformat(start_str + 'T00:00:00')
+                            if log_dt < start_dt:
+                                continue
+
+                        if query.end_date:
+                            end_str = query.end_date.strip()
+                            if 'T' in end_str or ' ' in end_str:
+                                end_dt = datetime.fromisoformat(end_str.replace('Z', '+00:00'))
+                            else:
+                                end_dt = datetime.fromisoformat(end_str + 'T23:59:59')
+                            if log_dt > end_dt:
+                                continue
+                    except Exception as e:
+                        logger.warning(f"Failed to filter by date: {e}")
                 user = parsed_message.get("user", "")
                 user_full_name = parsed_message.get("user_full_name", "")
                 table = parsed_message.get("table", "")
@@ -838,7 +970,7 @@ def get_logs_by_param_system(
             except Exception as e:
                 logger.error(f"Could not read log: {str(e)}")
 
-        totalRecords = response.get('hits', {}).get('total', {}).get('value', 0)
+        totalRecords = len(logs)
         totalPages = math.ceil(totalRecords / pageSize) if pageSize > 0 else 0
 
         return logs, totalRecords, totalPages
