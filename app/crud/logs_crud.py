@@ -291,7 +291,7 @@ def get_logs_by_param_patient(query: LogQuery, pageNo: int = 0, pageSize: int = 
             except Exception as e:
                 logger.error(f"Could not read log: {str(e)}")
 
-        totalRecords = len(logs)
+        totalRecords = response.get('hits', {}).get('total', {}).get('value', 0)
         totalPages = math.ceil(totalRecords / pageSize) if pageSize > 0 else 0
 
         return logs, totalRecords, totalPages
@@ -531,7 +531,7 @@ def get_logs_by_param_activity(query: LogQuery, pageNo: int = 0, pageSize: int =
             except Exception as e:
                 logger.error(f"Could not read log: {str(e)}")
 
-        totalRecords = len(logs)
+        totalRecords = response.get('hits', {}).get('total', {}).get('value', 0)
         totalPages = math.ceil(totalRecords / pageSize) if pageSize > 0 else 0
 
         return logs, totalRecords, totalPages
@@ -737,7 +737,7 @@ def get_logs_by_param_user(
                 logger.error(f"Could not read user log: {str(e)}")
                 continue
 
-        totalRecords = len(logs)
+        totalRecords = response.get('hits', {}).get('total', {}).get('value', 0)
         totalPages = math.ceil(totalRecords / pageSize) if pageSize > 0 else 0
 
         return logs, totalRecords, totalPages
@@ -970,7 +970,7 @@ def get_logs_by_param_system(
             except Exception as e:
                 logger.error(f"Could not read log: {str(e)}")
 
-        totalRecords = len(logs)
+        totalRecords = response.get('hits', {}).get('total', {}).get('value', 0)
         totalPages = math.ceil(totalRecords / pageSize) if pageSize > 0 else 0
 
         return logs, totalRecords, totalPages
