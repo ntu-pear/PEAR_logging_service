@@ -53,5 +53,5 @@ spec:
     - protocol: TCP
       port: 8001
       targetPort: 8001
-      nodePort: 30001
+      nodePort: 30002  # distinct from production's 30001 -- NodePorts are cluster-wide, not per-namespace
   type: NodePort

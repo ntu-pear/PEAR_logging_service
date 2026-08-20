@@ -37,8 +37,8 @@ jobs:
       
       - name: Create Kubernetes Secret
         run: |
-            kubectl delete secret logger-service-secret --ignore-not-found
-            kubectl create secret generic logger-service-secret \
+            kubectl delete secret logger-service-secret --ignore-not-found -n staging
+            kubectl create secret generic logger-service-secret -n staging \
             --from-literal=ES_HOST="${{ secrets.ES_HOST_STAGING }}" \
             --from-literal=ES_PORT="${{ secrets.ES_PORT }}" \
             --from-literal=ES_USERNAME="${{ secrets.ES_USERNAME }}" \
@@ -47,7 +47,7 @@ jobs:
       - name: Delete old deployment
         run: |
           echo "Deleting old deployment..."
-          kubectl delete deployment.apps/logger-service-dev service/logger-service-dev --ignore-not-found
+          kubectl delete deployment.apps/logger-service-dev service/logger-service-dev --ignore-not-found -n staging
 
       - name: Delete old docker images
         run: |
@@ -72,4 +72,4 @@ jobs:
       - name: Deploying to Kubernetes
         run: |
           echo "Deploying..."
-          kubectl apply -f './k8s/deployment-stg.yaml'
+          kubectl apply -n staging -f './k8s/deployment-stg.yaml'
