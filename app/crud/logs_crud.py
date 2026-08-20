@@ -11,6 +11,22 @@ import logging
 logger = logging.getLogger("uvicorn")
 
 
+def _clean_none_string(value, replacement=None):
+    """
+    The Patient/Activity log formatters render a Python None through
+    %-style string templating, which produces the literal string "None"
+    instead of JSON null. Normalize that back to `replacement` (None for
+    Optional[...] LogDocument fields like patient_id/patient_full_name/
+    log_type; "" for user_full_name, which LogDocument requires as a
+    non-optional str) instead of leaking "None" as visible text or, for
+    patient_id, failing Optional[int] validation and silently dropping
+    the whole log entry.
+    """
+    if isinstance(value, str) and value.strip() == "None":
+        return replacement
+    return value
+
+
 def get_logs_by_param_patient(query: LogQuery, pageNo: int = 0, pageSize: int = 10):
     offset = pageNo * pageSize
     must_conditions = []
@@ -233,13 +249,13 @@ def get_logs_by_param_patient(query: LogQuery, pageNo: int = 0, pageSize: int = 
                 level = parsed_message.get("level", "")
                 logger_name = parsed_message.get("logger", "")
                 user = parsed_message.get("user", "")
-                user_full_name = parsed_message.get("user_full_name", "")
+                user_full_name = _clean_none_string(parsed_message.get("user_full_name", ""), replacement="")
                 table = parsed_message.get("table", "")
                 action = parsed_message.get("action", "")
                 message = parsed_message.get("log_text", "")
-                log_type = parsed_message.get("log_type", "")
+                log_type = _clean_none_string(parsed_message.get("log_type", ""))
                 is_system_config = parsed_message.get("is_system_config", False)
-                patient_full_name = parsed_message.get("patient_full_name", "")
+                patient_full_name = _clean_none_string(parsed_message.get("patient_full_name", ""))
 
                 # Parse inner message field
                 inner_message = parsed_message.get("message", {})
@@ -305,18 +321,41 @@ def get_logs_by_param_activity(query: LogQuery, pageNo: int = 0, pageSize: int =
     offset = pageNo * pageSize
     must_conditions = []
 
+    # Structural "is this a CRUD log" check. Dual-pathed: Logstash's json
+    # filter (server-side, /etc/logstash/conf.d/) promotes fields to the
+    # top level of the ES document for any log line that's valid JSON,
+    # overwriting "message" in the process -- so a JSON-formatted Activity
+    # log no longer contains these fields as text inside "message" at all.
+    # Old (pre-migration) lines still do. Match either shape.
     must_conditions.append({
         "bool": {
-            "must": [
-                {"match_phrase": {"message": "\"user\""}},
-                {"match_phrase": {"message": "\"user_full_name\""}},
-                {"match_phrase": {"message": "\"table\""}},
-                {"match_phrase": {"message": "\"action\""}},
-                {"match_phrase": {"message": "\"log_text\""}},
-                {"match_phrase": {"log.file.path": "PEAR_activity_service"}}
-            ]
+            "should": [
+                {
+                    "bool": {
+                        "must": [
+                            {"match_phrase": {"message": "\"user\""}},
+                            {"match_phrase": {"message": "\"user_full_name\""}},
+                            {"match_phrase": {"message": "\"table\""}},
+                            {"match_phrase": {"message": "\"action\""}},
+                            {"match_phrase": {"message": "\"log_text\""}},
+                        ]
+                    }
+                },
+                {
+                    "bool": {
+                        "must": [
+                            {"exists": {"field": "user"}},
+                            {"exists": {"field": "table"}},
+                            {"exists": {"field": "action"}},
+                            {"exists": {"field": "log_text"}},
+                        ]
+                    }
+                },
+            ],
+            "minimum_should_match": 1,
         }
     })
+    must_conditions.append({"match_phrase": {"log.file.path": "PEAR_activity_service"}})
 
     # Make sure that action is either create, update or delete
     must_conditions.append({
@@ -325,29 +364,87 @@ def get_logs_by_param_activity(query: LogQuery, pageNo: int = 0, pageSize: int =
                 {"match_phrase": {"message": f"\"action\": \"create\""}},
                 {"match_phrase": {"message": f"\"action\": \"update\""}},
                 {"match_phrase": {"message": f"\"action\": \"delete\""}},
+                {"match_phrase": {"action": "create"}},
+                {"match_phrase": {"action": "update"}},
+                {"match_phrase": {"action": "delete"}},
             ],
             "minimum_should_match": 1
         }
     })
 
     if query.action:
-        must_conditions.append({"match_phrase": {"message": f"\"action\": \"{query.action}\""}})
+        must_conditions.append({
+            "bool": {
+                "should": [
+                    {"match_phrase": {"message": f"\"action\": \"{query.action}\""}},
+                    {"match_phrase": {"action": query.action}},
+                ],
+                "minimum_should_match": 1
+            }
+        })
     if query.user:
-        must_conditions.append({"match_phrase": {"message": f"\"user\": \"{query.user}\""}})
+        must_conditions.append({
+            "bool": {
+                "should": [
+                    {"match_phrase": {"message": f"\"user\": \"{query.user}\""}},
+                    {"match_phrase": {"user": query.user}},
+                ],
+                "minimum_should_match": 1
+            }
+        })
     if query.table:
-        must_conditions.append({"match_phrase": {"message": f"\"table\": \"{query.table}\""}})
+        must_conditions.append({
+            "bool": {
+                "should": [
+                    {"match_phrase": {"message": f"\"table\": \"{query.table}\""}},
+                    {"match_phrase": {"table": query.table}},
+                ],
+                "minimum_should_match": 1
+            }
+        })
     if query.log_type:
-        must_conditions.append({"match_phrase": {"message": f"\"log_type\": \"{query.log_type}\""}})
+        # NOTE: Logstash forcibly overwrites log_type to "crud_operation" for
+        # any successfully JSON-parsed CRUD line (mutate add_field rule in
+        # 02-beats-input.conf), so filtering by a real business log_type
+        # value only works for legacy (pre-migration) lines. Left dual-pathed
+        # for consistency; the new-shape branch just won't find anything
+        # meaningful until that Logstash rule is fixed server-side.
+        must_conditions.append({
+            "bool": {
+                "should": [
+                    {"match_phrase": {"message": f"\"log_type\": \"{query.log_type}\""}},
+                    {"match_phrase": {"log_type": query.log_type}},
+                ],
+                "minimum_should_match": 1
+            }
+        })
     if query.patient:
-        must_conditions.append({"match_phrase": {"message": f"\"patient_id\": \"{query.patient}\""}})
+        must_conditions.append({
+            "bool": {
+                "should": [
+                    {"match_phrase": {"message": f"\"patient_id\": \"{query.patient}\""}},
+                    {"match_phrase": {"patient_id": query.patient}},
+                ],
+                "minimum_should_match": 1
+            }
+        })
     if query.patient_full_name:
-        must_conditions.append({"match_phrase": {"message": f"\"patient_full_name\": \"{query.patient_full_name}\""}})
+        must_conditions.append({
+            "bool": {
+                "should": [
+                    {"match_phrase": {"message": f"\"patient_full_name\": \"{query.patient_full_name}\""}},
+                    {"match_phrase": {"patient_full_name": query.patient_full_name}},
+                ],
+                "minimum_should_match": 1
+            }
+        })
 
     # Only patient-related activity logs (is_system_config = False)
     must_conditions.append({
         "bool": {
             "must_not": [
-                {"match_phrase": {"message": f"\"is_system_config\": True"}}
+                {"match_phrase": {"message": f"\"is_system_config\": True"}},
+                {"term": {"is_system_config": True}},
             ]
         }
     })
@@ -358,7 +455,8 @@ def get_logs_by_param_activity(query: LogQuery, pageNo: int = 0, pageSize: int =
             "bool": {
                 "should": [
                     {"match_phrase": {"message": f"'entity_id': {query.activity}"}},
-                    {"match_phrase": {"message": f"\"entity_id\": {query.activity}"}}
+                    {"match_phrase": {"message": f"\"entity_id\": {query.activity}"}},
+                    {"match_phrase": {"message.entity_id": query.activity}},
                 ],
                 "minimum_should_match": 1
             }
@@ -420,16 +518,33 @@ def get_logs_by_param_activity(query: LogQuery, pageNo: int = 0, pageSize: int =
                 source = hit["_source"]
                 message_str = source.get("message", "")
 
-                if message_str in seen_messages:
-                    logger.debug(f"Skipping duplicate message: {message_str[:100]}...")
+                # Dedup by document id, not by "message" content: once
+                # Logstash decomposes a JSON log line (see below), "message"
+                # becomes a dict, which isn't hashable and can't go in a set().
+                doc_id = hit.get("_id")
+                if doc_id in seen_messages:
+                    logger.debug(f"Skipping duplicate document: {doc_id}")
                     continue
-                seen_messages.add(message_str)
+                seen_messages.add(doc_id)
 
-                # Skip logs unrelated to CRUD logs
+                # Skip logs unrelated to CRUD logs. Only relevant to the
+                # legacy (not-yet-decomposed) shape -- for new-shape hits
+                # "message" is already a dict here, so isinstance(..., str)
+                # is False and this naturally no-ops.
                 if isinstance(message_str, str) and ('"action"' not in message_str or '"table"' not in message_str):
                     continue
 
-                if isinstance(message_str, dict):
+                # Logstash's json filter (server-side, /etc/logstash/conf.d/)
+                # runs unconditionally: if Activity's raw log line is valid
+                # JSON, Logstash parses it and promotes every field to the
+                # TOP LEVEL of the ES document -- overwriting "message" with
+                # just the inner {entity_id, original_data, updated_data}
+                # payload. If the raw line wasn't valid JSON (legacy shape),
+                # "message" is left as the full untouched raw string. Detect
+                # which case this hit is in before parsing anything.
+                if "table" in source and "action" in source:
+                    parsed_message = source
+                elif isinstance(message_str, dict):
                     parsed_message = message_str
                 else:
                     # Try parsing as JSON first (most logs are proper JSON)
@@ -485,11 +600,11 @@ def get_logs_by_param_activity(query: LogQuery, pageNo: int = 0, pageSize: int =
                 level = parsed_message.get("level", "")
                 logger_name = parsed_message.get("logger", "")
                 user = parsed_message.get("user", "")
-                user_full_name = parsed_message.get("user_full_name", "")
+                user_full_name = _clean_none_string(parsed_message.get("user_full_name", ""), replacement="")
                 table = parsed_message.get("table", "")
                 action = parsed_message.get("action", "")
                 log_text = parsed_message.get("log_text", "")
-                log_type = parsed_message.get("log_type", "")
+                log_type = _clean_none_string(parsed_message.get("log_type", ""))
                 is_system_config = parsed_message.get("is_system_config", False)
 
                 # Parse inner message field
@@ -507,9 +622,13 @@ def get_logs_by_param_activity(query: LogQuery, pageNo: int = 0, pageSize: int =
                 updated_data = inner_message.get("updated_data", {})
                 entity_id = inner_message.get("entity_id")
 
-                # Extract patient_id and patient_full_name from root level
-                patient_id = parsed_message.get("patient_id")
-                patient_full_name = parsed_message.get("patient_full_name", "")
+                # Extract patient_id and patient_full_name from root level.
+                # _clean_none_string is required here: the formatter renders a
+                # missing patient_id as the string "None", which Pydantic's
+                # Optional[int] can't coerce -- that was silently dropping every
+                # log for patient-independent tables (ACTIVITY, CARE_CENTRE, ...).
+                patient_id = _clean_none_string(parsed_message.get("patient_id"))
+                patient_full_name = _clean_none_string(parsed_message.get("patient_full_name", ""))
 
                 log = LogDocument(
                     timestamp=timestamp,
@@ -757,16 +876,41 @@ def get_logs_by_param_system(
     offset = pageNo * pageSize
     must_conditions = []
 
-    # Match logs from patient or activity service with CRUD fields
+    # Match logs from patient or activity service with CRUD fields.
+    # Dual-pathed: a JSON-formatted producer (Logstash promotes fields to
+    # the document root, see get_logs_by_param_activity for the full
+    # explanation) no longer has these as text inside "message" at all.
     must_conditions.append({
         "bool": {
-            "must": [
-                {"match_phrase": {"message": "\"user\""}},
-                {"match_phrase": {"message": "\"table\""}},
-                {"match_phrase": {"message": "\"action\""}},
-                {"match_phrase": {"message": "\"log_text\""}},
-                {"match_phrase": {"message": "\"is_system_config\""}}
+            "should": [
+                {
+                    "bool": {
+                        "must": [
+                            {"match_phrase": {"message": "\"user\""}},
+                            {"match_phrase": {"message": "\"table\""}},
+                            {"match_phrase": {"message": "\"action\""}},
+                            {"match_phrase": {"message": "\"log_text\""}},
+                            {"match_phrase": {"message": "\"is_system_config\""}},
+                        ]
+                    }
+                },
+                {
+                    "bool": {
+                        "must": [
+                            {"exists": {"field": "user"}},
+                            {"exists": {"field": "table"}},
+                            {"exists": {"field": "action"}},
+                            {"exists": {"field": "log_text"}},
+                            {"exists": {"field": "is_system_config"}},
+                        ]
+                    }
+                },
             ],
+            "minimum_should_match": 1,
+        }
+    })
+    must_conditions.append({
+        "bool": {
             "should": [
                 {"match_phrase": {"log.file.path": "PEAR_patient_service"}},
                 {"match_phrase": {"log.file.path": "PEAR_activity_service"}}
@@ -777,7 +921,13 @@ def get_logs_by_param_system(
 
     # Only system config logs (is_system_config = True)
     must_conditions.append({
-        "match_phrase": {"message": "\"is_system_config\": True"}
+        "bool": {
+            "should": [
+                {"match_phrase": {"message": "\"is_system_config\": True"}},
+                {"term": {"is_system_config": True}},
+            ],
+            "minimum_should_match": 1
+        }
     })
 
     # Make sure that action is either create, update or delete
@@ -787,6 +937,9 @@ def get_logs_by_param_system(
                 {"match_phrase": {"message": "\"action\": \"create\""}},
                 {"match_phrase": {"message": "\"action\": \"update\""}},
                 {"match_phrase": {"message": "\"action\": \"delete\""}},
+                {"match_phrase": {"action": "create"}},
+                {"match_phrase": {"action": "update"}},
+                {"match_phrase": {"action": "delete"}},
             ],
             "minimum_should_match": 1
         }
@@ -794,15 +947,58 @@ def get_logs_by_param_system(
 
     # Apply filters
     if query.action:
-        must_conditions.append({"match_phrase": {"message": f"\"action\": \"{query.action}\""}})
+        must_conditions.append({
+            "bool": {
+                "should": [
+                    {"match_phrase": {"message": f"\"action\": \"{query.action}\""}},
+                    {"match_phrase": {"action": query.action}},
+                ],
+                "minimum_should_match": 1
+            }
+        })
     if query.user:
-        must_conditions.append({"match_phrase": {"message": f"\"user\": \"{query.user}\""}})
+        must_conditions.append({
+            "bool": {
+                "should": [
+                    {"match_phrase": {"message": f"\"user\": \"{query.user}\""}},
+                    {"match_phrase": {"user": query.user}},
+                ],
+                "minimum_should_match": 1
+            }
+        })
     if query.user_full_name:
-        must_conditions.append({"match_phrase": {"message": f"\"user_full_name\": \"{query.user_full_name}\""}})
+        must_conditions.append({
+            "bool": {
+                "should": [
+                    {"match_phrase": {"message": f"\"user_full_name\": \"{query.user_full_name}\""}},
+                    {"match_phrase": {"user_full_name": query.user_full_name}},
+                ],
+                "minimum_should_match": 1
+            }
+        })
     if query.table:
-        must_conditions.append({"match_phrase": {"message": f"\"table\": \"{query.table}\""}})
+        must_conditions.append({
+            "bool": {
+                "should": [
+                    {"match_phrase": {"message": f"\"table\": \"{query.table}\""}},
+                    {"match_phrase": {"table": query.table}},
+                ],
+                "minimum_should_match": 1
+            }
+        })
     if query.log_type:
-        must_conditions.append({"match_phrase": {"message": f"\"log_type\": \"{query.log_type}\""}})
+        # NOTE: unreliable for JSON-formatted producers -- see the identical
+        # note in get_logs_by_param_activity. Logstash overwrites log_type
+        # server-side for any successfully-parsed CRUD line.
+        must_conditions.append({
+            "bool": {
+                "should": [
+                    {"match_phrase": {"message": f"\"log_type\": \"{query.log_type}\""}},
+                    {"match_phrase": {"log_type": query.log_type}},
+                ],
+                "minimum_should_match": 1
+            }
+        })
 
     # Handle Entity ID search
     if query.activity:
@@ -810,7 +1006,8 @@ def get_logs_by_param_system(
             "bool": {
                 "should": [
                     {"match_phrase": {"message": f"\"entity_id\": {query.activity}"}},
-                    {"match_phrase": {"message": f"'entity_id': {query.activity}"}}
+                    {"match_phrase": {"message": f"'entity_id': {query.activity}"}},
+                    {"match_phrase": {"message.entity_id": query.activity}},
                 ],
                 "minimum_should_match": 1
             }
@@ -874,11 +1071,20 @@ def get_logs_by_param_system(
                 source = hit["_source"]
                 message_str = source.get("message", "")
 
-                if message_str in seen_messages:
+                # Dedup by document id, not "message" content -- see the
+                # identical note in get_logs_by_param_activity.
+                doc_id = hit.get("_id")
+                if doc_id in seen_messages:
                     continue
-                seen_messages.add(message_str)
+                seen_messages.add(doc_id)
 
-                if isinstance(message_str, dict):
+                # Same shape detection as get_logs_by_param_activity: if
+                # Logstash's json filter already promoted fields to the
+                # document root, use it directly instead of re-parsing
+                # "message" (which is no longer the outer envelope).
+                if "table" in source and "action" in source:
+                    parsed_message = source
+                elif isinstance(message_str, dict):
                     parsed_message = message_str
                 else:
                     # Try parsing as JSON first
@@ -929,11 +1135,11 @@ def get_logs_by_param_system(
                     except Exception as e:
                         logger.warning(f"Failed to filter by date: {e}")
                 user = parsed_message.get("user", "")
-                user_full_name = parsed_message.get("user_full_name", "")
+                user_full_name = _clean_none_string(parsed_message.get("user_full_name", ""), replacement="")
                 table = parsed_message.get("table", "")
                 action = parsed_message.get("action", "")
                 log_text = parsed_message.get("log_text", "")
-                log_type = parsed_message.get("log_type", "")
+                log_type = _clean_none_string(parsed_message.get("log_type", ""))
                 is_system_config = parsed_message.get("is_system_config", True)
 
                 # Parse inner message field
