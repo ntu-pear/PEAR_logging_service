@@ -38,7 +38,7 @@ jobs:
       - name: Delete old deployment
         run: |
           echo "Deleting old deployment..."
-          kubectl delete deployment.apps/logger-service-dev service/logger-service-dev --ignore-not-found=true
+          kubectl delete deployment.apps/logger-service-dev service/logger-service-dev --ignore-not-found=true -n default
 
       - name: Delete old docker images
         run: |
@@ -63,4 +63,4 @@ jobs:
       - name: Deploying to Kubernetes
         run: |
           echo "Deploying..."
-          kubectl apply -f './k8s/deployment-prod.yaml'
+          kubectl apply -n default -f './k8s/deployment-prod.yaml'
