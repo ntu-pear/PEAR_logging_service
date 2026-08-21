@@ -151,9 +151,14 @@ def test_get_logs_with_action_filter(mock_es_service):
     assert 'bool' in query_body['query']
     assert 'must' in query_body['query']['bool']
 
-    # Check that action filter is present
+    # Check that a dual-pathed action filter is present -- matching either
+    # the legacy text-in-"message" shape or the new top-level "action"
+    # field promoted by Logstash for JSON-formatted log lines.
     has_action_filter = any(
-        'match_phrase' in condition and 'message' in condition['match_phrase']
+        condition.get("bool", {}).get("should") == [
+            {"match_phrase": {"message": "\"action\": \"update\""}},
+            {"match_phrase": {"action": "update"}},
+        ]
         for condition in query_body['query']['bool']['must']
     )
     assert has_action_filter
