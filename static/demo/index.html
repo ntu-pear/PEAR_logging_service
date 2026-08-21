@@ -40,17 +40,25 @@
         const res = await fetch(`${endpoint}?pageSize=10`);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const json = await res.json();
-        tbody.innerHTML = json.data.map(row => `
-          <tr>
-            <td>${row.timestamp ?? ""}</td>
-            <td>${row.table ?? ""}</td>
-            <td>${row.method ?? ""}</td>
-            <td>${row.user ?? ""}</td>
-            <td>${row.message ?? ""}</td>
-          </tr>
-        `).join("");
+        tbody.innerHTML = "";
+        json.data.forEach(row => {
+          const tr = document.createElement("tr");
+          ["timestamp", "table", "method", "user", "message"].forEach(key => {
+            const td = document.createElement("td");
+            td.textContent = row[key] ?? "";
+            tr.appendChild(td);
+          });
+          tbody.appendChild(tr);
+        });
       } catch (err) {
-        tbody.innerHTML = `<tr><td colspan="5" class="error">Failed to load: ${err.message}</td></tr>`;
+        tbody.innerHTML = "";
+        const tr = document.createElement("tr");
+        const td = document.createElement("td");
+        td.colSpan = 5;
+        td.className = "error";
+        td.textContent = `Failed to load: ${err.message}`;
+        tr.appendChild(td);
+        tbody.appendChild(tr);
       }
     }
 
