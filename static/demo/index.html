@@ -34,10 +34,11 @@
   </table>
 
   <script>
-    async function loadLogs(endpoint, tableId) {
+    async function loadLogs(endpoint, params, tableId) {
       const tbody = document.querySelector(`#${tableId} tbody`);
       try {
-        const res = await fetch(`${endpoint}?pageSize=10`);
+        const query = new URLSearchParams({ pageSize: "10", ...params });
+        const res = await fetch(`${endpoint}?${query}`);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const json = await res.json();
         tbody.innerHTML = "";
@@ -62,8 +63,8 @@
       }
     }
 
-    loadLogs("/api/Logs/Patient", "patient-table");
-    loadLogs("/api/Logs/Activity", "activity-table");
+    loadLogs("/api/Logs/Patient", { environment: "staging" }, "patient-table");
+    loadLogs("/api/Logs/Activity", { environment: "staging" }, "activity-table");
   </script>
 </body>
 </html>

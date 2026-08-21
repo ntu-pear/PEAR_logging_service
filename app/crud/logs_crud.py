@@ -215,6 +215,9 @@ def get_logs_by_param_patient(query: LogQuery, pageNo: int = 0, pageSize: int = 
             }
         })
 
+    if query.environment:
+        must_conditions.append({"match_phrase": {"fields.environment": query.environment}})
+
     # Add timestamp range filter
     if query.start_date or query.end_date:
         range_filter = {"range": {"@timestamp": {}}}
@@ -572,6 +575,9 @@ def get_logs_by_param_activity(query: LogQuery, pageNo: int = 0, pageSize: int =
             }
         })
 
+    if query.environment:
+        must_conditions.append({"match_phrase": {"fields.environment": query.environment}})
+
     # Add timestamp range filter
     if query.start_date or query.end_date:
         range_filter = {"range": {"@timestamp": {}}}
@@ -828,6 +834,9 @@ def get_logs_by_param_user(
 
     # Note: log_type is inferred from action, not stored in ES
     # We filter by log_type in Python code after parsing
+
+    if query.environment:
+        must_conditions.append({"match_phrase": {"fields.environment": query.environment}})
 
     # Handle timestamp range filter
     if query.start_date or query.end_date:
@@ -1135,6 +1144,9 @@ def get_logs_by_param_system(
                 "minimum_should_match": 1
             }
         })
+
+    if query.environment:
+        must_conditions.append({"match_phrase": {"fields.environment": query.environment}})
 
     # Add timestamp range filter
     if query.start_date or query.end_date:
