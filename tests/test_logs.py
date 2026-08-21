@@ -184,6 +184,25 @@ def test_get_logs_with_pagination(mock_es_service):
     assert total_pages == 1  # 3 records / 5 per page = 1 page
 
 
+def test_get_logs_with_environment_filter(mock_es_service):
+    """Test getting logs filtered by environment"""
+    query = LogQuery(environment="staging")
+
+    logs, total_records, total_pages = get_logs_by_param_patient(query=query)
+
+    call_args = mock_es_service.search_documents.call_args
+    query_body = call_args.kwargs['body']
+
+    assert 'bool' in query_body['query']
+    assert 'must' in query_body['query']['bool']
+
+    has_environment_filter = any(
+        condition.get('match_phrase', {}).get('fields.environment') == 'staging'
+        for condition in query_body['query']['bool']['must']
+    )
+    assert has_environment_filter
+
+
 def test_get_logs_with_date_range(mock_es_service):
     """Test date range filtering"""
     query = LogQuery(

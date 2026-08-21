@@ -14,12 +14,6 @@ jobs:
   build:
     runs-on: [self-hosted, Linux, X64, logger_staging]
 
-    env:
-      ES_HOST: ${{ secrets.ES_HOST_STAGING }}
-      ES_PORT: ${{ secrets.ES_PORT }}
-      ES_USERNAME: ${{ secrets.ES_USERNAME }}
-      ES_PASSWORD: ${{ secrets.ES_PASSWORD_STAGING }}
-
     steps:
       - uses: actions/checkout@v4
       - name: Print working directory
@@ -34,42 +28,22 @@ jobs:
           echo "ES_PORT=${{ secrets.ES_PORT }}" >> .env
           echo "ES_USERNAME=${{ secrets.ES_USERNAME }}" >> .env
           echo "ES_PASSWORD=${{ secrets.ES_PASSWORD_STAGING }}" >> .env
-      
-      - name: Create Kubernetes Secret
-        run: |
-            kubectl delete secret logger-service-secret --ignore-not-found -n staging
-            kubectl create secret generic logger-service-secret -n staging \
-            --from-literal=ES_HOST="${{ secrets.ES_HOST_STAGING }}" \
-            --from-literal=ES_PORT="${{ secrets.ES_PORT }}" \
-            --from-literal=ES_USERNAME="${{ secrets.ES_USERNAME }}" \
-            --from-literal=ES_PASSWORD="${{ secrets.ES_PASSWORD_STAGING }}"
+          chmod 600 .env
 
-      - name: Delete old deployment
+      - name: Stop existing staging container (if running)
         run: |
-          echo "Deleting old deployment..."
-          kubectl delete deployment.apps/logger-service-dev service/logger-service-dev --ignore-not-found -n staging
+          docker compose down || true
 
-      - name: Delete old docker images
+      - name: Build and start staging container
         run: |
-          docker rmi logger_service_dev
-          docker rmi localhost:5000/logger_service_dev
+          docker compose up -d --build
 
-      - name: Build Docker image
+      - name: Prune old images
         run: |
-          echo "Building Docker image..."
-          docker build --no-cache -f Dockerfile -t logger_service_dev .
+          docker image prune -f
 
-      - name: Tag Docker image
+      - name: Verify container is running
         run: |
-          echo "Tagging Docker image..."
-          docker tag logger_service_dev:latest localhost:5000/logger_service_dev:latest
-
-      - name: Push Docker image to local registry
-        run: |
-          echo "Pushing Docker image to localhost:5000...."
-          docker push localhost:5000/logger_service_dev:latest
-
-      - name: Deploying to Kubernetes
-        run: |
-          echo "Deploying..."
-          kubectl apply -n staging -f './k8s/deployment-stg.yaml'
+          curl -fsS --retry 15 --retry-delay 2 --retry-connrefused \
+            http://localhost:30002/ > /dev/null \
+            || { docker compose ps --all; docker compose logs --tail=100; exit 1; }
