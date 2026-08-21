@@ -257,8 +257,15 @@ def get_logs_by_param_patient(query: LogQuery, pageNo: int = 0, pageSize: int = 
                 is_system_config = parsed_message.get("is_system_config", False)
                 patient_full_name = _clean_none_string(parsed_message.get("patient_full_name", ""))
 
-                # Parse inner message field
-                inner_message = parsed_message.get("message", {})
+                # Parse inner message field. Prefer "crud_payload" -- once the
+                # Logstash filter is fixed (see spec §12: the ES field-type
+                # collision between plain-text log lines and structured CRUD
+                # payloads sharing the "message" field name), Logstash renames
+                # the parsed payload to "crud_payload" for any CRUD-shaped
+                # line. Falling back to "message" keeps this working exactly
+                # as today until that server-side change lands -- no
+                # coordinated deploy required between the two.
+                inner_message = parsed_message.get("crud_payload", parsed_message.get("message", {}))
                 if isinstance(inner_message, str):
                     try:
                         fixed = inner_message
@@ -528,10 +535,15 @@ def get_logs_by_param_activity(query: LogQuery, pageNo: int = 0, pageSize: int =
                 seen_messages.add(doc_id)
 
                 # Skip logs unrelated to CRUD logs. Only relevant to the
-                # legacy (not-yet-decomposed) shape -- for new-shape hits
-                # "message" is already a dict here, so isinstance(..., str)
-                # is False and this naturally no-ops.
-                if isinstance(message_str, str) and ('"action"' not in message_str or '"table"' not in message_str):
+                # legacy (not-yet-decomposed) shape, where "table"/"action"
+                # need to already be present in the source. New-shape hits
+                # are recognized directly by "table"/"action" already being
+                # top-level fields (checked below) -- skip this filter for
+                # them entirely, since once Logstash renames "message" away
+                # (spec §12), message_str falls back to "" here, which would
+                # otherwise incorrectly trip this check for every valid hit.
+                is_new_shape = "table" in source and "action" in source
+                if not is_new_shape and isinstance(message_str, str) and ('"action"' not in message_str or '"table"' not in message_str):
                     continue
 
                 # Logstash's json filter (server-side, /etc/logstash/conf.d/)
@@ -540,9 +552,10 @@ def get_logs_by_param_activity(query: LogQuery, pageNo: int = 0, pageSize: int =
                 # TOP LEVEL of the ES document -- overwriting "message" with
                 # just the inner {entity_id, original_data, updated_data}
                 # payload. If the raw line wasn't valid JSON (legacy shape),
-                # "message" is left as the full untouched raw string. Detect
-                # which case this hit is in before parsing anything.
-                if "table" in source and "action" in source:
+                # "message" is left as the full untouched raw string.
+                # is_new_shape (computed above) already tells us which case
+                # this hit is in.
+                if is_new_shape:
                     parsed_message = source
                 elif isinstance(message_str, dict):
                     parsed_message = message_str
@@ -607,8 +620,15 @@ def get_logs_by_param_activity(query: LogQuery, pageNo: int = 0, pageSize: int =
                 log_type = _clean_none_string(parsed_message.get("log_type", ""))
                 is_system_config = parsed_message.get("is_system_config", False)
 
-                # Parse inner message field
-                inner_message = parsed_message.get("message", {})
+                # Parse inner message field. Prefer "crud_payload" -- once the
+                # Logstash filter is fixed (see spec §12: the ES field-type
+                # collision between plain-text log lines and structured CRUD
+                # payloads sharing the "message" field name), Logstash renames
+                # the parsed payload to "crud_payload" for any CRUD-shaped
+                # line. Falling back to "message" keeps this working exactly
+                # as today until that server-side change lands -- no
+                # coordinated deploy required between the two.
+                inner_message = parsed_message.get("crud_payload", parsed_message.get("message", {}))
                 if isinstance(inner_message, str):
                     try:
                         fixed = inner_message
@@ -1142,8 +1162,15 @@ def get_logs_by_param_system(
                 log_type = _clean_none_string(parsed_message.get("log_type", ""))
                 is_system_config = parsed_message.get("is_system_config", True)
 
-                # Parse inner message field
-                inner_message = parsed_message.get("message", {})
+                # Parse inner message field. Prefer "crud_payload" -- once the
+                # Logstash filter is fixed (see spec §12: the ES field-type
+                # collision between plain-text log lines and structured CRUD
+                # payloads sharing the "message" field name), Logstash renames
+                # the parsed payload to "crud_payload" for any CRUD-shaped
+                # line. Falling back to "message" keeps this working exactly
+                # as today until that server-side change lands -- no
+                # coordinated deploy required between the two.
+                inner_message = parsed_message.get("crud_payload", parsed_message.get("message", {}))
                 if isinstance(inner_message, str):
                     try:
                         fixed = inner_message
