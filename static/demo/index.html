@@ -1,70 +1,395 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>PEAR Logger Service — Staging Demo</title>
-  <style>
-    body { font-family: sans-serif; margin: 2rem; background: #f5f5f5; }
-    h1 { font-size: 1.4rem; }
-    h2 { font-size: 1.1rem; margin-top: 2rem; }
-    table { border-collapse: collapse; width: 100%; background: white; }
-    th, td { border: 1px solid #ddd; padding: 6px 10px; text-align: left; font-size: 0.85rem; }
-    th { background: #333; color: white; }
-    tr:nth-child(even) { background: #fafafa; }
-    .error { color: #b00020; }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PEAR Logger Service — Staging</title>
+<style>
+  /* Palette matches PEAR_WebFE's shadcn/ui theme tokens (src/App.css) exactly,
+     converted from HSL to hex, so this page sits visually inside the same
+     product rather than reading as a separate tool. */
+  :root {
+    --background: #ffffff;
+    --foreground: #020817;
+    --card: #ffffff;
+    --muted: #f1f5f9;
+    --muted-foreground: #64748b;
+    --border: #e2e8f0;
+    --radius: 0.5rem;
+
+    --create-bg: #2abb67; --create-fg: #eafaf1;
+    --update-bg: #fef3c8; --update-fg: #a54b18;
+    --delete-bg: #e63333; --delete-fg: #ffffff;
+    --old: #c92a2a; --new: #1f9d55;
+    --mask-bg: #fef3c8; --mask-fg: #a54b18;
+
+    --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --background: #020817; --foreground: #f8fafc; --card: #020817;
+      --muted: #1e293b; --muted-foreground: #94a3b8; --border: #1e293b;
+
+      --create-bg: #186839; --create-fg: #d5f6e3;
+      --update-bg: #645002; --update-fg: #fdefb4;
+      --delete-bg: #9f1414; --delete-fg: #ffffff;
+      --old: #f2a0a0; --new: #7fd9a8;
+      --mask-bg: #645002; --mask-fg: #fdefb4;
+    }
+  }
+  :root[data-theme="dark"] {
+    --background: #020817; --foreground: #f8fafc; --card: #020817;
+    --muted: #1e293b; --muted-foreground: #94a3b8; --border: #1e293b;
+
+    --create-bg: #186839; --create-fg: #d5f6e3;
+    --update-bg: #645002; --update-fg: #fdefb4;
+    --delete-bg: #9f1414; --delete-fg: #ffffff;
+    --old: #f2a0a0; --new: #7fd9a8;
+    --mask-bg: #645002; --mask-fg: #fdefb4;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    background: var(--background); color: var(--foreground);
+    font-family: var(--font-sans); font-size: 14px; line-height: 1.5;
+    margin: 0; padding: 2.5rem 1.25rem 5rem;
+  }
+  .page { max-width: 1180px; margin: 0 auto; }
+
+  header { margin-bottom: 1.8rem; }
+  .eyebrow {
+    font-size: 0.72rem; font-weight: 600; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--muted-foreground); margin: 0 0 0.5rem;
+  }
+  h1 {
+    font-weight: 700; font-size: 1.4rem;
+    margin: 0; letter-spacing: -0.01em; text-wrap: balance;
+  }
+
+  .toolbar {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 1.1rem;
+    background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 0.75rem 1rem; margin-bottom: 1.8rem;
+  }
+  .toolbar-label {
+    font-size: 0.72rem; font-weight: 600; letter-spacing: 0.06em;
+    text-transform: uppercase; color: var(--muted-foreground); margin-right: 0.2rem;
+  }
+  .col-toggle { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; cursor: pointer; user-select: none; }
+  .col-toggle input { accent-color: var(--create-bg); cursor: pointer; }
+
+  section { margin-bottom: 2.6rem; }
+  .section-head {
+    display: flex; align-items: baseline; justify-content: space-between;
+    gap: 1rem; margin-bottom: 0.7rem;
+  }
+  h2 { font-weight: 600; font-size: 1.05rem; margin: 0; }
+  .count { font-size: 0.78rem; color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
+
+  .table-wrap {
+    overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card);
+  }
+  table { border-collapse: collapse; width: 100%; font-size: 0.85rem; }
+  thead th {
+    text-align: left; font-size: 0.7rem; font-weight: 600;
+    letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted-foreground);
+    padding: 0.6rem 0.8rem; border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  tbody td {
+    padding: 0.6rem 0.8rem; border-bottom: 1px solid var(--border);
+    vertical-align: top; max-width: 260px;
+  }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:hover { background: var(--muted); }
+
+  td.col-timestamp { font-size: 0.83rem; color: var(--muted-foreground); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  td.col-message, td.col-changes { white-space: normal; }
+  td.col-changes { font-size: 0.82rem; overflow: hidden; text-overflow: ellipsis; }
+  td.col-user, td.col-patient { color: var(--muted-foreground); }
+  td.col-entity_id { color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
+
+  .badge {
+    font-size: 0.68rem; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.03em;
+    padding: 0.2rem 0.55rem; border-radius: calc(var(--radius) - 2px); white-space: nowrap;
+  }
+  .badge.create { color: var(--create-fg); background: var(--create-bg); }
+  .badge.update { color: var(--update-fg); background: var(--update-bg); }
+  .badge.delete { color: var(--delete-fg); background: var(--delete-bg); }
+
+  .old { color: var(--old); text-decoration: line-through; opacity: 0.85; }
+  .arrow { color: var(--muted-foreground); margin: 0 0.25rem; }
+  .new { color: var(--new); }
+  .masked { color: var(--mask-fg); background: var(--mask-bg); padding: 0.05rem 0.3rem; border-radius: 3px; letter-spacing: 0.03em; }
+  .field-sep { color: var(--muted-foreground); margin: 0 0.4rem; }
+  .field-name { color: var(--muted-foreground); }
+
+  .hidden-col { display: none !important; }
+
+  .error-row, .empty-row { padding: 0.9rem; font-size: 0.85rem; color: var(--muted-foreground); }
+  .error-row { color: var(--delete-bg); }
+</style>
 </head>
 <body>
-  <h1>PEAR Logger Service — Staging</h1>
+<div class="page">
 
-  <h2>Patient Logs</h2>
-  <table id="patient-table">
-    <thead>
-      <tr><th>Timestamp</th><th>Table</th><th>Method</th><th>User</th><th>Message</th></tr>
-    </thead>
-    <tbody></tbody>
-  </table>
+  <header>
+    <p class="eyebrow">PEAR Logger Service</p>
+    <h1>Staging Log Viewer</h1>
+  </header>
 
-  <h2>Activity Logs</h2>
-  <table id="activity-table">
-    <thead>
-      <tr><th>Timestamp</th><th>Table</th><th>Method</th><th>User</th><th>Message</th></tr>
-    </thead>
-    <tbody></tbody>
-  </table>
+  <div class="toolbar" id="col-toolbar">
+    <span class="toolbar-label">Columns</span>
+    <!-- checkboxes injected by script -->
+  </div>
 
-  <script>
-    async function loadLogs(endpoint, params, tableId) {
-      const tbody = document.querySelector(`#${tableId} tbody`);
-      try {
-        const query = new URLSearchParams({ pageSize: "10", ...params });
-        const res = await fetch(`${endpoint}?${query}`);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const json = await res.json();
-        tbody.innerHTML = "";
-        json.data.forEach(row => {
-          const tr = document.createElement("tr");
-          ["timestamp", "table", "method", "user", "message"].forEach(key => {
-            const td = document.createElement("td");
-            td.textContent = row[key] ?? "";
-            tr.appendChild(td);
-          });
-          tbody.appendChild(tr);
-        });
-      } catch (err) {
-        tbody.innerHTML = "";
-        const tr = document.createElement("tr");
-        const td = document.createElement("td");
-        td.colSpan = 5;
-        td.className = "error";
-        td.textContent = `Failed to load: ${err.message}`;
-        tr.appendChild(td);
-        tbody.appendChild(tr);
-      }
+  <section>
+    <div class="section-head">
+      <h2>Patient</h2>
+      <span class="count" id="patient-count"></span>
+    </div>
+    <div class="table-wrap">
+      <table id="patient-table">
+        <thead></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>Activity</h2>
+      <span class="count" id="activity-count"></span>
+    </div>
+    <div class="table-wrap">
+      <table id="activity-table">
+        <thead></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+</div>
+
+<script>
+  const COLUMNS = [
+    { key: "timestamp", label: "Timestamp", default: true },
+    { key: "method",    label: "Method",    default: true },
+    { key: "table",     label: "Table",     default: true },
+    { key: "user",      label: "User",      default: true },
+    { key: "patient",   label: "Patient",   default: true },
+    { key: "entity_id", label: "Entity ID", default: false },
+    { key: "message",   label: "Message",   default: true },
+    { key: "changes",   label: "Changes",   default: true },
+  ];
+
+  const SENSITIVE_FIELD_PATTERN = /nric/i;
+
+  function maskValue(rawValue) {
+    const s = String(rawValue);
+    if (s.length <= 4) return "*".repeat(s.length);
+    const visibleStart = s.slice(0, 1);
+    const visibleEnd = s.slice(-3);
+    return visibleStart + "*".repeat(Math.max(s.length - 4, 3)) + visibleEnd;
+  }
+
+  function fmtTime(raw) {
+    if (!raw) return "";
+    return raw.replace("T", " ") + " SGT";
+  }
+
+  function fmtValue(key, value) {
+    if (value === null || value === undefined || value === "") return "—";
+    const isSensitive = SENSITIVE_FIELD_PATTERN.test(key);
+    const display = typeof value === "object" ? JSON.stringify(value) : String(value);
+    return isSensitive ? maskValue(display) : display;
+  }
+
+  // Builds the "Changes" cell: a compact list of changed/created/deleted
+  // fields, with sensitive values masked. Returns a DocumentFragment built
+  // from real DOM nodes (never innerHTML with untrusted data).
+  function buildChangesCell(originalData, updatedData, method) {
+    const frag = document.createDocumentFragment();
+    const original = originalData || {};
+    const updated = updatedData || {};
+
+    let keys;
+    if (method === "delete") keys = Object.keys(original);
+    else if (method === "create") keys = Object.keys(updated);
+    else keys = Array.from(new Set([...Object.keys(original), ...Object.keys(updated)]))
+      .filter(k => original[k] !== updated[k]);
+
+    if (keys.length === 0) {
+      const span = document.createElement("span");
+      span.className = "field-name";
+      span.textContent = "—";
+      frag.appendChild(span);
+      return frag;
     }
 
-    loadLogs("/api/Logs/Patient", { environment: "staging" }, "patient-table");
-    loadLogs("/api/Logs/Activity", { environment: "staging" }, "activity-table");
-  </script>
+    keys.sort().forEach((key, i) => {
+      if (i > 0) {
+        const sep = document.createElement("span");
+        sep.className = "field-sep";
+        sep.textContent = "·";
+        frag.appendChild(sep);
+      }
+      const name = document.createElement("span");
+      name.className = "field-name";
+      name.textContent = key + ": ";
+      frag.appendChild(name);
+
+      const isSensitive = SENSITIVE_FIELD_PATTERN.test(key);
+      const hasOld = key in original, hasNew = key in updated;
+
+      if (method === "update" && hasOld && hasNew) {
+        const oldSpan = document.createElement("span");
+        oldSpan.className = isSensitive ? "old masked" : "old";
+        oldSpan.textContent = isSensitive ? maskValue(original[key]) : fmtValue(key, original[key]);
+        const arrow = document.createElement("span");
+        arrow.className = "arrow";
+        arrow.textContent = "→";
+        const newSpan = document.createElement("span");
+        newSpan.className = isSensitive ? "new masked" : "new";
+        newSpan.textContent = isSensitive ? maskValue(updated[key]) : fmtValue(key, updated[key]);
+        frag.appendChild(oldSpan);
+        frag.appendChild(arrow);
+        frag.appendChild(newSpan);
+      } else {
+        const val = document.createElement("span");
+        val.className = isSensitive ? "masked" : "";
+        val.textContent = fmtValue(key, hasNew ? updated[key] : original[key]);
+        frag.appendChild(val);
+      }
+    });
+    return frag;
+  }
+
+  function buildRow(row) {
+    const tr = document.createElement("tr");
+
+    const cellFor = (col) => {
+      const td = document.createElement("td");
+      td.className = `col-${col.key}`;
+      td.dataset.col = col.key;
+      switch (col.key) {
+        case "timestamp":
+          td.textContent = fmtTime(row.timestamp);
+          break;
+        case "method": {
+          const badge = document.createElement("span");
+          badge.className = `badge ${row.method || ""}`;
+          badge.textContent = row.method ?? "?";
+          td.appendChild(badge);
+          break;
+        }
+        case "table":
+          td.textContent = row.table ?? "";
+          break;
+        case "user":
+          td.textContent = row.user_full_name || row.user || "";
+          break;
+        case "patient":
+          td.textContent = row.patient_full_name || (row.patient_id != null ? `#${row.patient_id}` : "—");
+          break;
+        case "entity_id":
+          td.textContent = row.entity_id != null ? row.entity_id : "—";
+          break;
+        case "message":
+          td.textContent = row.message ?? "";
+          break;
+        case "changes":
+          td.appendChild(buildChangesCell(row.original_data, row.updated_data, row.method));
+          break;
+      }
+      return td;
+    };
+
+    COLUMNS.forEach(col => tr.appendChild(cellFor(col)));
+    return tr;
+  }
+
+  function buildHead(theadEl) {
+    theadEl.innerHTML = "";
+    const tr = document.createElement("tr");
+    COLUMNS.forEach(col => {
+      const th = document.createElement("th");
+      th.textContent = col.label;
+      th.dataset.col = col.key;
+      tr.appendChild(th);
+    });
+    theadEl.appendChild(tr);
+  }
+
+  function applyColumnVisibility() {
+    COLUMNS.forEach(col => {
+      const checkbox = document.getElementById(`colchk-${col.key}`);
+      const visible = checkbox ? checkbox.checked : col.default;
+      document.querySelectorAll(`[data-col="${col.key}"]`).forEach(el => {
+        el.classList.toggle("hidden-col", !visible);
+      });
+    });
+  }
+
+  function buildToolbar() {
+    const toolbar = document.getElementById("col-toolbar");
+    COLUMNS.forEach(col => {
+      const label = document.createElement("label");
+      label.className = "col-toggle";
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.id = `colchk-${col.key}`;
+      input.checked = col.default;
+      input.addEventListener("change", applyColumnVisibility);
+      label.appendChild(input);
+      label.appendChild(document.createTextNode(col.label));
+      toolbar.appendChild(label);
+    });
+  }
+
+  async function loadLogs(endpoint, params, tableId, countId) {
+    const table = document.getElementById(tableId);
+    const tbody = table.querySelector("tbody");
+    const thead = table.querySelector("thead");
+    const count = document.getElementById(countId);
+    buildHead(thead);
+    try {
+      const query = new URLSearchParams({ pageSize: "10", ...params });
+      const res = await fetch(`${endpoint}?${query}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = await res.json();
+      tbody.innerHTML = "";
+      count.textContent = `${json.totalRecords} total`;
+      if (json.data.length === 0) {
+        const tr = document.createElement("tr");
+        const td = document.createElement("td");
+        td.colSpan = COLUMNS.length;
+        td.className = "empty-row";
+        td.textContent = "No staging entries yet.";
+        tr.appendChild(td);
+        tbody.appendChild(tr);
+      } else {
+        json.data.forEach(row => tbody.appendChild(buildRow(row)));
+      }
+    } catch (err) {
+      tbody.innerHTML = "";
+      const tr = document.createElement("tr");
+      const td = document.createElement("td");
+      td.colSpan = COLUMNS.length;
+      td.className = "error-row";
+      td.textContent = `Failed to load: ${err.message}`;
+      tr.appendChild(td);
+      tbody.appendChild(tr);
+    }
+    applyColumnVisibility();
+  }
+
+  buildToolbar();
+  loadLogs("/api/Logs/Patient", { environment: "staging" }, "patient-table", "patient-count");
+  loadLogs("/api/Logs/Activity", { environment: "staging" }, "activity-table", "activity-count");
+  applyColumnVisibility();
+</script>
 </body>
 </html>
