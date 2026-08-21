@@ -40,18 +40,41 @@ def get_logs_by_param_patient(query: LogQuery, pageNo: int = 0, pageSize: int = 
     offset = pageNo * pageSize
     must_conditions = []
 
+    # Structural "is this a CRUD log" check. Dual-pathed: Logstash's json
+    # filter (server-side, /etc/logstash/conf.d/) promotes fields to the
+    # top level of the ES document for any log line that's valid JSON,
+    # overwriting "message" in the process -- so a JSON-formatted Patient
+    # log no longer contains these fields as text inside "message" at all.
+    # Old (pre-migration) lines still do. Match either shape.
     must_conditions.append({
         "bool": {
-            "must": [
-                {"match_phrase": {"message": "\"user\""}},
-                {"match_phrase": {"message": "\"user_full_name\""}},
-                {"match_phrase": {"message": "\"table\""}},
-                {"match_phrase": {"message": "\"action\""}},
-                {"match_phrase": {"message": "\"log_text\""}},
-                {"wildcard": {"log.file.path": "*pear_patient_service*"}}
-            ]
+            "should": [
+                {
+                    "bool": {
+                        "must": [
+                            {"match_phrase": {"message": "\"user\""}},
+                            {"match_phrase": {"message": "\"user_full_name\""}},
+                            {"match_phrase": {"message": "\"table\""}},
+                            {"match_phrase": {"message": "\"action\""}},
+                            {"match_phrase": {"message": "\"log_text\""}},
+                        ]
+                    }
+                },
+                {
+                    "bool": {
+                        "must": [
+                            {"exists": {"field": "user"}},
+                            {"exists": {"field": "table"}},
+                            {"exists": {"field": "action"}},
+                            {"exists": {"field": "log_text"}},
+                        ]
+                    }
+                },
+            ],
+            "minimum_should_match": 1,
         }
     })
+    must_conditions.append({"wildcard": {"log.file.path": "*pear_patient_service*"}})
 
     # Make sure that action is either create, update or delete
     must_conditions.append({
@@ -60,6 +83,9 @@ def get_logs_by_param_patient(query: LogQuery, pageNo: int = 0, pageSize: int = 
             {"match_phrase": {"message": f"\"action\": \"create\""}},
             {"match_phrase": {"message": f"\"action\": \"update\""}},
             {"match_phrase": {"message": f"\"action\": \"delete\""}},
+            {"match_phrase": {"action": "create"}},
+            {"match_phrase": {"action": "update"}},
+            {"match_phrase": {"action": "delete"}},
         ],
         "minimum_should_match": 1
         }
@@ -69,26 +95,63 @@ def get_logs_by_param_patient(query: LogQuery, pageNo: int = 0, pageSize: int = 
     must_conditions.append({
         "bool": {
             "must_not": [
-                {"match_phrase": {"message": f"\"is_system_config\": True"}}
+                {"match_phrase": {"message": f"\"is_system_config\": True"}},
+                {"term": {"is_system_config": True}},
             ]
         }
     })
 
     if query.action:
-        must_conditions.append({"match_phrase": {"message": f"\"action\": \"{query.action}\""}})
+        must_conditions.append({
+            "bool": {
+                "should": [
+                    {"match_phrase": {"message": f"\"action\": \"{query.action}\""}},
+                    {"match_phrase": {"action": query.action}},
+                ],
+                "minimum_should_match": 1
+            }
+        })
     if query.user:
-        must_conditions.append({"match_phrase": {"message": f"\"user\": \"{query.user}\""}})
+        must_conditions.append({
+            "bool": {
+                "should": [
+                    {"match_phrase": {"message": f"\"user\": \"{query.user}\""}},
+                    {"match_phrase": {"user": query.user}},
+                ],
+                "minimum_should_match": 1
+            }
+        })
     if query.user_full_name:
-        must_conditions.append({"match_phrase": {"message": f"\"user_full_name\": \"{query.user_full_name}\""}})
+        must_conditions.append({
+            "bool": {
+                "should": [
+                    {"match_phrase": {"message": f"\"user_full_name\": \"{query.user_full_name}\""}},
+                    {"match_phrase": {"user_full_name": query.user_full_name}},
+                ],
+                "minimum_should_match": 1
+            }
+        })
     if query.table:
-        must_conditions.append({"match_phrase": {"message": f"\"table\": \"{query.table}\""}})
+        must_conditions.append({
+            "bool": {
+                "should": [
+                    {"match_phrase": {"message": f"\"table\": \"{query.table}\""}},
+                    {"match_phrase": {"table": query.table}},
+                ],
+                "minimum_should_match": 1
+            }
+        })
 
-    # Handle Patient ID search
+    # Handle Patient ID search. Dual-pathed: legacy lines only have the id
+    # buried in the raw "message" text (original_data/updated_data), while
+    # new-shape lines carry a direct top-level "patient_id" field (see
+    # logger_utils.py's log_crud_action, which always passes patient_id
+    # through as its own field).
     if query.patient:
         must_conditions.append({
             "bool": {
                 "should": [
-                    # For Patient table - look for 'id' field
+                    # Legacy: For Patient table - look for 'id' field
                     {
                         "bool": {
                             "must": [
@@ -108,7 +171,7 @@ def get_logs_by_param_patient(query: LogQuery, pageNo: int = 0, pageSize: int = 
                             ]
                         }
                     },
-                    # For all other tables - look for patientId/PatientId/PatientID fields
+                    # Legacy: For all other tables - look for patientId/PatientId/PatientID fields
                     {
                         "bool": {
                             "should": [
@@ -119,19 +182,37 @@ def get_logs_by_param_patient(query: LogQuery, pageNo: int = 0, pageSize: int = 
                             ],
                             "minimum_should_match": 1
                         }
-                    }
+                    },
+                    # New shape: direct top-level field
+                    {"match_phrase": {"patient_id": query.patient}},
                 ],
                 "minimum_should_match": 1
             }
         })
     if query.patient_full_name:
         must_conditions.append({
-            "match_phrase": {"message": f"'patient_full_name': {query.patient_full_name}"}
+            "bool": {
+                "should": [
+                    {"match_phrase": {"message": f"\"patient_full_name\": \"{query.patient_full_name}\""}},
+                    {"match_phrase": {"patient_full_name": query.patient_full_name}},
+                ],
+                "minimum_should_match": 1
+            }
         })
 
     if query.log_type:
+        # NOTE: Logstash forcibly overwrites log_type to "crud_operation" for
+        # any successfully JSON-parsed CRUD line (mutate add_field rule in
+        # 02-beats-input.conf), so filtering by a real business log_type
+        # value only works for legacy (pre-migration) lines.
         must_conditions.append({
-            "match_phrase": {"message": f"'log_type': {query.log_type}"}
+            "bool": {
+                "should": [
+                    {"match_phrase": {"message": f"\"log_type\": \"{query.log_type}\""}},
+                    {"match_phrase": {"log_type": query.log_type}},
+                ],
+                "minimum_should_match": 1
+            }
         })
 
     # Add timestamp range filter
@@ -186,7 +267,15 @@ def get_logs_by_param_patient(query: LogQuery, pageNo: int = 0, pageSize: int = 
                 source = hit["_source"]
                 message_str = source.get("message", "")
 
-                if isinstance(message_str, dict):
+                # Dual-pathed like get_logs_by_param_activity: a JSON-formatted
+                # Patient log has "table"/"action" promoted to the top level by
+                # Logstash's json filter, and no longer has these fields as
+                # text inside "message" at all. Old (pre-migration) lines
+                # still do.
+                is_new_shape = "table" in source and "action" in source
+                if is_new_shape:
+                    parsed_message = source
+                elif isinstance(message_str, dict):
                     parsed_message = message_str
                 else:
                     parsed_message = None
@@ -288,13 +377,18 @@ def get_logs_by_param_patient(query: LogQuery, pageNo: int = 0, pageSize: int = 
                 updated_data = inner_message.get("updated_data", {})
                 entity_id = inner_message.get("entity_id")
 
-                patient_id = None
-                if table == "Patient":
+                # Prefer the direct top-level "patient_id" field (always
+                # emitted by logger_utils.py's log_crud_action now) over
+                # digging through original_data/updated_data, which was the
+                # only option for older callers that never passed patient_id
+                # explicitly.
+                patient_id = _clean_none_string(parsed_message.get("patient_id"))
+                if patient_id is None and table == "Patient":
                     if original_data.get("id"):
                         patient_id = original_data.get("id")
                     elif updated_data.get("id"):
                         patient_id = updated_data.get("id")
-                else:
+                elif patient_id is None:
                     if original_data.get("PatientId"):
                         patient_id = original_data.get("PatientId")
                     elif updated_data.get("PatientId"):
