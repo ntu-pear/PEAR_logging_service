@@ -22,6 +22,15 @@ def _clean_none_string(value, replacement=None):
     patient_id, failing Optional[int] validation and silently dropping
     the whole log entry.
     """
+    # Logstash's "add_field" appends to a field that's already present
+    # instead of overwriting it, so log_type (forced to "crud_operation"
+    # for every CRUD line by a mutate rule server-side) can come back as
+    # a single-element array like ["crud_operation"] rather than a plain
+    # string -- Pydantic's Optional[str] rejects a list outright, silently
+    # dropping the whole log entry. Unwrap to the last (most recently
+    # added) element before the None-string check below.
+    if isinstance(value, list):
+        value = value[-1] if value else replacement
     if isinstance(value, str) and value.strip() == "None":
         return replacement
     return value
