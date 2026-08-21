@@ -4,147 +4,132 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>PEAR Logger Service — Staging</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:wght@600;700&family=Source+Sans+3:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
+  /* Palette matches PEAR_WebFE's shadcn/ui theme tokens (src/App.css) exactly,
+     converted from HSL to hex, so this page sits visually inside the same
+     product rather than reading as a separate tool. */
   :root {
-    --bg: #f6f7f9;
-    --surface: #ffffff;
-    --surface-2: #eef0f3;
-    --ink: #1b2430;
-    --ink-muted: #5b6472;
-    --ink-faint: #838d9b;
-    --accent: #b15a1f;
-    --accent-ink: #7a3d12;
-    --rule: #dce0e6;
-    --create: #2f6b4f; --create-bg: #ecf3ee;
-    --update: #a67c1f; --update-bg: #f6f0e2;
-    --delete: #8a3a3a; --delete-bg: #f7ecec;
-    --old: #a13a3a; --new: #256b45;
-    --mask: #8a6d1a; --mask-bg: #f7f0dc;
+    --background: #ffffff;
+    --foreground: #020817;
+    --card: #ffffff;
+    --muted: #f1f5f9;
+    --muted-foreground: #64748b;
+    --border: #e2e8f0;
+    --radius: 0.5rem;
 
-    --font-display: "Source Serif 4", Georgia, serif;
-    --font-body: "Source Sans 3", -apple-system, "Segoe UI", sans-serif;
-    --font-mono: "IBM Plex Mono", "SF Mono", Consolas, monospace;
+    --create-bg: #2abb67; --create-fg: #eafaf1;
+    --update-bg: #fef3c8; --update-fg: #a54b18;
+    --delete-bg: #e63333; --delete-fg: #ffffff;
+    --old: #c92a2a; --new: #1f9d55;
+    --mask-bg: #fef3c8; --mask-fg: #a54b18;
+
+    --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   }
 
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
-      --bg: #12161c; --surface: #1a2029; --surface-2: #212834;
-      --ink: #e7eaee; --ink-muted: #9aa3b0; --ink-faint: #6d7684;
-      --accent: #e08a42; --accent-ink: #f0ab73; --rule: #2a313c;
-      --create: #7fc7a3; --create-bg: #1c2a22;
-      --update: #d9b25f; --update-bg: #2b2517;
-      --delete: #d98787; --delete-bg: #2a1e1e;
-      --old: #d98787; --new: #7fc7a3;
-      --mask: #e0c069; --mask-bg: #2b2517;
+      --background: #020817; --foreground: #f8fafc; --card: #020817;
+      --muted: #1e293b; --muted-foreground: #94a3b8; --border: #1e293b;
+
+      --create-bg: #186839; --create-fg: #d5f6e3;
+      --update-bg: #645002; --update-fg: #fdefb4;
+      --delete-bg: #9f1414; --delete-fg: #ffffff;
+      --old: #f2a0a0; --new: #7fd9a8;
+      --mask-bg: #645002; --mask-fg: #fdefb4;
     }
   }
   :root[data-theme="dark"] {
-    --bg: #12161c; --surface: #1a2029; --surface-2: #212834;
-    --ink: #e7eaee; --ink-muted: #9aa3b0; --ink-faint: #6d7684;
-    --accent: #e08a42; --accent-ink: #f0ab73; --rule: #2a313c;
-    --create: #7fc7a3; --create-bg: #1c2a22;
-    --update: #d9b25f; --update-bg: #2b2517;
-    --delete: #d98787; --delete-bg: #2a1e1e;
-    --old: #d98787; --new: #7fc7a3;
-    --mask: #e0c069; --mask-bg: #2b2517;
+    --background: #020817; --foreground: #f8fafc; --card: #020817;
+    --muted: #1e293b; --muted-foreground: #94a3b8; --border: #1e293b;
+
+    --create-bg: #186839; --create-fg: #d5f6e3;
+    --update-bg: #645002; --update-fg: #fdefb4;
+    --delete-bg: #9f1414; --delete-fg: #ffffff;
+    --old: #f2a0a0; --new: #7fd9a8;
+    --mask-bg: #645002; --mask-fg: #fdefb4;
   }
 
   * { box-sizing: border-box; }
   body {
-    background: var(--bg); color: var(--ink);
-    font-family: var(--font-body); font-size: 15px; line-height: 1.5;
+    background: var(--background); color: var(--foreground);
+    font-family: var(--font-sans); font-size: 14px; line-height: 1.5;
     margin: 0; padding: 2.5rem 1.25rem 5rem;
   }
   .page { max-width: 1180px; margin: 0 auto; }
 
   header { margin-bottom: 1.8rem; }
   .eyebrow {
-    font-family: var(--font-mono); font-size: 0.7rem; letter-spacing: 0.1em;
-    text-transform: uppercase; color: var(--accent-ink); margin: 0 0 0.6rem;
+    font-size: 0.72rem; font-weight: 600; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--muted-foreground); margin: 0 0 0.5rem;
   }
   h1 {
-    font-family: var(--font-display); font-weight: 700; font-size: 1.5rem;
-    margin: 0 0 0.35rem; letter-spacing: -0.01em; text-wrap: balance;
+    font-weight: 700; font-size: 1.4rem;
+    margin: 0; letter-spacing: -0.01em; text-wrap: balance;
   }
-  .sub { color: var(--ink-muted); font-size: 0.9rem; margin: 0; max-width: 68ch; }
-  .sub code { font-family: var(--font-mono); font-size: 0.85em; }
 
   .toolbar {
     display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 1.1rem;
-    background: var(--surface); border: 1px solid var(--rule); border-radius: 8px;
+    background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
     padding: 0.75rem 1rem; margin-bottom: 1.8rem;
   }
   .toolbar-label {
-    font-family: var(--font-mono); font-size: 0.68rem; letter-spacing: 0.08em;
-    text-transform: uppercase; color: var(--ink-faint); margin-right: 0.2rem;
+    font-size: 0.72rem; font-weight: 600; letter-spacing: 0.06em;
+    text-transform: uppercase; color: var(--muted-foreground); margin-right: 0.2rem;
   }
   .col-toggle { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; cursor: pointer; user-select: none; }
-  .col-toggle input { accent-color: var(--accent); cursor: pointer; }
-
-  .privacy-note {
-    display: inline-flex; align-items: center; gap: 0.4rem; margin-left: auto;
-    font-family: var(--font-mono); font-size: 0.72rem; color: var(--mask);
-    background: var(--mask-bg); padding: 0.25rem 0.6rem; border-radius: 5px;
-  }
+  .col-toggle input { accent-color: var(--create-bg); cursor: pointer; }
 
   section { margin-bottom: 2.6rem; }
   .section-head {
     display: flex; align-items: baseline; justify-content: space-between;
     gap: 1rem; margin-bottom: 0.7rem;
   }
-  h2 { font-family: var(--font-display); font-weight: 600; font-size: 1.1rem; margin: 0; }
-  .count { font-family: var(--font-mono); font-size: 0.76rem; color: var(--ink-faint); }
+  h2 { font-weight: 600; font-size: 1.05rem; margin: 0; }
+  .count { font-size: 0.78rem; color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
 
   .table-wrap {
-    overflow-x: auto; border: 1px solid var(--rule); border-radius: 8px; background: var(--surface);
+    overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card);
   }
   table { border-collapse: collapse; width: 100%; font-size: 0.85rem; }
   thead th {
-    text-align: left; font-family: var(--font-mono); font-size: 0.68rem;
-    letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-faint);
-    font-weight: 500; padding: 0.55rem 0.8rem; border-bottom: 1px solid var(--rule);
+    text-align: left; font-size: 0.7rem; font-weight: 600;
+    letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted-foreground);
+    padding: 0.6rem 0.8rem; border-bottom: 1px solid var(--border);
     white-space: nowrap;
   }
   tbody td {
-    padding: 0.55rem 0.8rem; border-bottom: 1px solid var(--rule);
+    padding: 0.6rem 0.8rem; border-bottom: 1px solid var(--border);
     vertical-align: top; max-width: 260px;
   }
   tbody tr:last-child td { border-bottom: none; }
-  tbody tr:hover { background: var(--surface-2); }
+  tbody tr:hover { background: var(--muted); }
 
-  td.col-timestamp { font-family: var(--font-mono); font-size: 0.8rem; color: var(--ink-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  td.col-timestamp { font-size: 0.83rem; color: var(--muted-foreground); white-space: nowrap; font-variant-numeric: tabular-nums; }
   td.col-message, td.col-changes { white-space: normal; }
-  td.col-changes { font-family: var(--font-mono); font-size: 0.78rem; overflow: hidden; text-overflow: ellipsis; }
-  td.col-user, td.col-patient { color: var(--ink-muted); }
-  td.col-entity_id { font-family: var(--font-mono); color: var(--ink-muted); }
+  td.col-changes { font-size: 0.82rem; overflow: hidden; text-overflow: ellipsis; }
+  td.col-user, td.col-patient { color: var(--muted-foreground); }
+  td.col-entity_id { color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
 
   .badge {
-    font-family: var(--font-mono); font-size: 0.68rem; font-weight: 600;
+    font-size: 0.68rem; font-weight: 600;
     text-transform: uppercase; letter-spacing: 0.03em;
-    padding: 0.18rem 0.5rem; border-radius: 4px; white-space: nowrap;
+    padding: 0.2rem 0.55rem; border-radius: calc(var(--radius) - 2px); white-space: nowrap;
   }
-  .badge.create { color: var(--create); background: var(--create-bg); }
-  .badge.update { color: var(--update); background: var(--update-bg); }
-  .badge.delete { color: var(--delete); background: var(--delete-bg); }
+  .badge.create { color: var(--create-fg); background: var(--create-bg); }
+  .badge.update { color: var(--update-fg); background: var(--update-bg); }
+  .badge.delete { color: var(--delete-fg); background: var(--delete-bg); }
 
-  .old { color: var(--old); text-decoration: line-through; opacity: 0.8; }
-  .arrow { color: var(--ink-faint); margin: 0 0.25rem; }
+  .old { color: var(--old); text-decoration: line-through; opacity: 0.85; }
+  .arrow { color: var(--muted-foreground); margin: 0 0.25rem; }
   .new { color: var(--new); }
-  .masked { color: var(--mask); background: var(--mask-bg); padding: 0.05rem 0.3rem; border-radius: 3px; letter-spacing: 0.03em; }
-  .field-sep { color: var(--ink-faint); margin: 0 0.4rem; }
-  .field-name { color: var(--ink-faint); }
+  .masked { color: var(--mask-fg); background: var(--mask-bg); padding: 0.05rem 0.3rem; border-radius: 3px; letter-spacing: 0.03em; }
+  .field-sep { color: var(--muted-foreground); margin: 0 0.4rem; }
+  .field-name { color: var(--muted-foreground); }
 
   .hidden-col { display: none !important; }
 
-  .error-row, .empty-row { padding: 0.9rem; font-size: 0.85rem; color: var(--ink-faint); }
-  .error-row { color: var(--delete); }
-
-  @media (max-width: 640px) {
-    .privacy-note { margin-left: 0; }
-  }
+  .error-row, .empty-row { padding: 0.9rem; font-size: 0.85rem; color: var(--muted-foreground); }
+  .error-row { color: var(--delete-bg); }
 </style>
 </head>
 <body>
@@ -153,13 +138,11 @@
   <header>
     <p class="eyebrow">PEAR Logger Service</p>
     <h1>Staging Log Viewer</h1>
-    <p class="sub">Live audit-trail data from Elasticsearch, scoped to <code>environment=staging</code>. Timestamps are the origin server's local clock (Asia/Singapore, UTC+8) — not UTC.</p>
   </header>
 
   <div class="toolbar" id="col-toolbar">
     <span class="toolbar-label">Columns</span>
     <!-- checkboxes injected by script -->
-    <span class="privacy-note">🔒 NRIC values are masked</span>
   </div>
 
   <section>
@@ -352,7 +335,6 @@
 
   function buildToolbar() {
     const toolbar = document.getElementById("col-toolbar");
-    const note = toolbar.querySelector(".privacy-note");
     COLUMNS.forEach(col => {
       const label = document.createElement("label");
       label.className = "col-toggle";
@@ -363,7 +345,7 @@
       input.addEventListener("change", applyColumnVisibility);
       label.appendChild(input);
       label.appendChild(document.createTextNode(col.label));
-      toolbar.insertBefore(label, note);
+      toolbar.appendChild(label);
     });
   }
 
