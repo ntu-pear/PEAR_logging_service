@@ -39,7 +39,7 @@ def get_logs_by_param_patient(query: LogQuery, pageNo: int = 0, pageSize: int = 
                 {"match_phrase": {"message": "\"table\""}},
                 {"match_phrase": {"message": "\"action\""}},
                 {"match_phrase": {"message": "\"log_text\""}},
-                {"match_phrase": {"log.file.path": "PEAR_patient_service"}}
+                {"wildcard": {"log.file.path": "*pear_patient_service*"}}
             ]
         }
     })
@@ -362,7 +362,7 @@ def get_logs_by_param_activity(query: LogQuery, pageNo: int = 0, pageSize: int =
             "minimum_should_match": 1,
         }
     })
-    must_conditions.append({"match_phrase": {"log.file.path": "PEAR_activity_service"}})
+    must_conditions.append({"wildcard": {"log.file.path": "*pear_activity_service*"}})
 
     # Make sure that action is either create, update or delete
     must_conditions.append({
@@ -689,7 +689,7 @@ def get_logs_by_param_user(
     must_conditions = []
 
     must_conditions.append({
-        "match_phrase": {"log.file.path": "PEAR_user_service"}
+        "wildcard": {"log.file.path": "*pear_user_service*"}
     })
 
     # User actions (login, logout, password_change, create, update, delete)
@@ -932,8 +932,8 @@ def get_logs_by_param_system(
     must_conditions.append({
         "bool": {
             "should": [
-                {"match_phrase": {"log.file.path": "PEAR_patient_service"}},
-                {"match_phrase": {"log.file.path": "PEAR_activity_service"}}
+                {"wildcard": {"log.file.path": "*pear_patient_service*"}},
+                {"wildcard": {"log.file.path": "*pear_activity_service*"}}
             ],
             "minimum_should_match": 1
         }
