@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -6,7 +8,9 @@ from app.routers.logs import router as logs_router
 
 app = FastAPI(title="PEAR Logger Service", description="Logger Service API Documentation")
 app.include_router(logs_router, prefix="/api")
-app.mount("/demo", StaticFiles(directory="static/demo", html=True), name="demo")
+
+STATIC_DEMO_DIR = Path(__file__).resolve().parent.parent / "static" / "demo"
+app.mount("/demo", StaticFiles(directory=str(STATIC_DEMO_DIR), html=True), name="demo")
 
 origins = [
     "http://localhost:5173",

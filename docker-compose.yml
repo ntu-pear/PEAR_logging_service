@@ -1,3 +1,5 @@
+name: logger-service-staging
+
 services:
   logger-service-staging:
     build: .
