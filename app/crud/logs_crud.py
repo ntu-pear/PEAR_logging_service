@@ -886,7 +886,7 @@ def get_logs_by_param_user(
 
     try:
         response = es_service.search_documents(
-            index="logs-*",
+            index="*",
             body=es_query,
             headers={"Content-Type": "application/json"}
         )
@@ -948,8 +948,16 @@ def get_logs_by_param_user(
                     auth_actions = ["login", "logout", "password_change"]
                     log_type = "auth" if action.lower() in auth_actions else "data"
 
-                # Parse message field for original_data, updated_data
-                message_str = source.get("message", "")
+                # Parse message field for original_data, updated_data. Prefer
+                # "crud_payload" -- Logstash's server-side rule renames
+                # "message" to "crud_payload" for any create/update/delete
+                # line (see spec §12 / the ES field-type collision between
+                # plain-text log lines and structured CRUD payloads sharing
+                # the "message" field name). Login events aren't renamed
+                # (only create/update/delete match that rule), so they still
+                # arrive under "message" -- falling back to it keeps both
+                # shapes working.
+                message_str = source.get("crud_payload", source.get("message", ""))
                 original_data = None
                 updated_data = None
 
