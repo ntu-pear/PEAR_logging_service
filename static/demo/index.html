@@ -171,6 +171,19 @@
     </div>
   </section>
 
+  <section>
+    <div class="section-head">
+      <h2>User</h2>
+      <span class="count" id="user-count"></span>
+    </div>
+    <div class="table-wrap">
+      <table id="user-table">
+        <thead></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
 </div>
 
 <script>
@@ -389,6 +402,7 @@
   buildToolbar();
   loadLogs("/api/Logs/Patient", { environment: "staging" }, "patient-table", "patient-count");
   loadLogs("/api/Logs/Activity", { environment: "staging" }, "activity-table", "activity-count");
+  loadLogs("/api/Logs/User", { environment: "staging" }, "user-table", "user-count");
   applyColumnVisibility();
 </script>
 </body>
