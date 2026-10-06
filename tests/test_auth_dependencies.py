@@ -49,3 +49,17 @@ def test_rejected_token_is_401(monkeypatch):
 def test_unavailable_is_503(monkeypatch, verdict):
     _verdict(monkeypatch, verdict)
     assert _app().get("/admin-only", headers={"Authorization": "Bearer tok"}).status_code == 503
+
+
+def test_non_ascii_bearer_token_is_401_not_500(monkeypatch):
+    from app.auth import token_verifier
+
+    monkeypatch.setenv("USER_SERVICE_URL", "http://user-svc")
+    token_verifier.reset_cache()
+    monkeypatch.setattr(token_verifier, "_call_user_service",
+                        lambda base_url, token: (_ for _ in ()).throw(AssertionError("must not be called")))
+    from app.main import app
+
+    r = TestClient(app).get("/api/Logs/User", headers={"Authorization": "Bearer tok\u00e9".encode("latin-1")})
+    token_verifier.reset_cache()
+    assert r.status_code == 401

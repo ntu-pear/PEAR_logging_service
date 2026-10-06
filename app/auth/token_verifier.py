@@ -11,6 +11,7 @@ CACHE_TTL_SECONDS = 60
 OUTAGE_BACKOFF_SECONDS = 30
 REQUEST_TIMEOUT_SECONDS = 2.0
 MAX_CACHE_ENTRIES = 10000
+MAX_TOKEN_LENGTH = 4096
 
 
 @dataclass(frozen=True)
@@ -53,6 +54,9 @@ def verify_token(token: str, now: Optional[Callable[[], float]] = None) -> Tuple
     if not base_url:
         return Verdict.UNCONFIGURED, None
 
+    if not token.isascii() or len(token) > MAX_TOKEN_LENGTH:
+        return Verdict.REJECTED, None
+
     current = clock()
     if current < _outage_until:
         return Verdict.UNAVAILABLE, None
@@ -83,7 +87,7 @@ def verify_token(token: str, now: Optional[Callable[[], float]] = None) -> Tuple
         except (ValueError, KeyError, TypeError):
             _outage_until = current + OUTAGE_BACKOFF_SECONDS
             return Verdict.UNAVAILABLE, None
-    elif response.status_code in (401, 403, 404):
+    elif 400 <= response.status_code < 500:
         result = (Verdict.REJECTED, None)
     else:
         _outage_until = current + OUTAGE_BACKOFF_SECONDS
