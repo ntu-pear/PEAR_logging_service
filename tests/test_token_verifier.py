@@ -72,3 +72,30 @@ def test_unconfigured_when_base_url_missing(monkeypatch):
     monkeypatch.delenv("USER_SERVICE_URL", raising=False)
     _respond(monkeypatch, 200, USER)
     assert verify_token("tok", now=lambda: 1000.0) == (Verdict.UNCONFIGURED, None)
+
+
+def _respond_raw(monkeypatch, response, calls=None):
+    def fake(base_url, token):
+        if calls is not None:
+            calls.append(token)
+        return response
+    monkeypatch.setattr(token_verifier, "_call_user_service", fake)
+
+
+def test_non_json_200_is_unavailable(monkeypatch):
+    _respond_raw(monkeypatch, httpx.Response(200, content=b"not json"))
+    assert verify_token("tok", now=lambda: 1000.0) == (Verdict.UNAVAILABLE, None)
+
+
+def test_200_missing_field_is_unavailable(monkeypatch):
+    body = {k: v for k, v in USER.items() if k != "roleName"}
+    _respond(monkeypatch, 200, body)
+    assert verify_token("tok", now=lambda: 1000.0) == (Verdict.UNAVAILABLE, None)
+
+
+def test_malformed_200_triggers_backoff(monkeypatch):
+    calls = []
+    _respond_raw(monkeypatch, httpx.Response(200, content=b"not json"), calls)
+    assert verify_token("a", now=lambda: 1000.0) == (Verdict.UNAVAILABLE, None)
+    assert verify_token("b", now=lambda: 1029.0) == (Verdict.UNAVAILABLE, None)
+    assert calls == ["a"]

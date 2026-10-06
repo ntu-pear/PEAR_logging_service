@@ -69,16 +69,20 @@ def verify_token(token: str, now: Optional[Callable[[], float]] = None) -> Tuple
         return Verdict.UNAVAILABLE, None
 
     if response.status_code == 200:
-        body = response.json()
-        result = (
-            Verdict.VALID,
-            VerifiedUser(
-                userId=str(body["userId"]),
-                fullName=body["fullName"],
-                roleName=body["roleName"],
-                email=body.get("email", ""),
-            ),
-        )
+        try:
+            body = response.json()
+            result = (
+                Verdict.VALID,
+                VerifiedUser(
+                    userId=str(body["userId"]),
+                    fullName=body["fullName"],
+                    roleName=body["roleName"],
+                    email=body.get("email", ""),
+                ),
+            )
+        except (ValueError, KeyError, TypeError):
+            _outage_until = current + OUTAGE_BACKOFF_SECONDS
+            return Verdict.UNAVAILABLE, None
     elif response.status_code in (401, 403, 404):
         result = (Verdict.REJECTED, None)
     else:
