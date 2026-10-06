@@ -34,6 +34,7 @@ jobs:
           echo "ES_PORT=${{ secrets.ES_PORT }}" >> .env
           echo "ES_USERNAME=${{ secrets.ES_USERNAME }}" >> .env
           echo "ES_PASSWORD=${{ secrets.ES_PASSWORD }}" >> .env
+          echo "USER_SERVICE_URL=${{ secrets.USER_SERVICE_URL }}" >> .env
 
       - name: Delete old deployment
         run: |
