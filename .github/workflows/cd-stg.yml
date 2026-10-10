@@ -45,6 +45,6 @@ jobs:
 
       - name: Verify container is running
         run: |
-          curl -fsS --retry 15 --retry-delay 2 --retry-connrefused \
+          curl -fsS --retry 15 --retry-delay 2 --retry-all-errors \
             http://localhost:30002/ > /dev/null \
             || { docker compose ps --all; docker compose logs --tail=100; exit 1; }
