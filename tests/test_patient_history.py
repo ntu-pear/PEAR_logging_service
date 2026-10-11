@@ -27,7 +27,8 @@ def _as(monkeypatch, role):
 def captured(monkeypatch):
     seen = {}
 
-    def fake(query, pageNo=0, pageSize=10):
+    def fake(query, pageNo=0, pageSize=10, include_activity=False):
+        seen["include_activity"] = include_activity
         seen["patient"] = query.patient
         seen["pageSize"] = pageSize
         rows = [_row(), _row(table="REF_PATIENT"), _row(is_system_config=True)]
@@ -56,3 +57,9 @@ def test_care_roles_get_patient_scoped_history(monkeypatch, captured, role):
     assert captured["pageSize"] == 100
     tables = [row["table"] for row in r.json()["data"]]
     assert tables == ["PATIENT_PRESCRIPTION"]
+
+
+def test_history_route_includes_activity(monkeypatch, captured):
+    _as(monkeypatch, "DOCTOR")
+    assert client.get("/api/Logs/Patient/42/history", headers=AUTH).status_code == 200
+    assert captured["include_activity"] is True

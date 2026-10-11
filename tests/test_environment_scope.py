@@ -77,3 +77,17 @@ def _flatten(conds):
 def test_patient_default_only_patient_wildcard(captured):
     logs_crud.get_logs_by_param_patient(LogQuery(patient="42"))
     assert _paths(captured) == ["*pear_patient_service*"]
+
+
+def test_patient_include_activity_adds_activity_wildcard(captured):
+    logs_crud.get_logs_by_param_patient(LogQuery(patient="42"), include_activity=True)
+    assert sorted(_paths(captured)) == ["*pear_activity_service*", "*pear_patient_service*"]
+    assert {
+        "bool": {
+            "should": [
+                {"wildcard": {"log.file.path": "*pear_patient_service*"}},
+                {"wildcard": {"log.file.path": "*pear_activity_service*"}},
+            ],
+            "minimum_should_match": 1,
+        }
+    } in _must(captured)
