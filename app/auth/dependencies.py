@@ -5,6 +5,11 @@ from fastapi import Depends, HTTPException, Request, status
 from app.auth.token_verifier import Verdict, VerifiedUser, verify_token
 
 
+def get_bearer_token(request: Request) -> str:
+    _, _, token = request.headers.get("Authorization", "").partition(" ")
+    return token.strip()
+
+
 def get_verified_user(request: Request) -> VerifiedUser:
     header = request.headers.get("Authorization", "")
     scheme, _, token = header.partition(" ")
