@@ -221,3 +221,15 @@ def test_get_logs_with_date_range(mock_es_service):
         for condition in query_body['query']['bool']['must']
     )
     assert has_date_filter
+
+def test_patient_logs_carry_entity_id(mock_es_service):
+    logs, _, _ = get_logs_by_param_patient(LogQuery(), 0, 10)
+    assert [log.entity_id for log in logs[:2]] == [1, 2]
+
+
+def test_non_numeric_entity_id_does_not_drop_the_row(mock_es_service):
+    hit = sample_es_response["hits"]["hits"][0]
+    bad = {"_source": dict(hit["_source"], message=hit["_source"]["message"].replace('"entity_id": 1', '"entity_id": "None"'))}
+    mock_es_service.search_documents.return_value = {"hits": {"total": {"value": 1}, "hits": [bad]}}
+    logs, _, _ = get_logs_by_param_patient(LogQuery(), 0, 10)
+    assert len(logs) == 1 and logs[0].entity_id is None
