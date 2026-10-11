@@ -168,3 +168,53 @@ def test_history_activity_system_routes_resolve(monkeypatch, calls):
     assert client.get("/api/Logs/Activity", headers=h).json()["data"][0]["updated_data"]["modified_by_name"] == "Bob Lee"
     _as(monkeypatch, "ADMIN")
     assert client.get("/api/Logs/System", headers=h).json()["data"][0]["updated_data"]["modified_by_name"] == "Bob Lee"
+
+
+def test_lowercase_id_key_gets_no_name(calls):
+    out = user_names.resolve_user_names([_row(updated={"doctorid": "u1", "created_by_id": "u1"})], "tok")
+    assert out[0].updated_data == {"doctorid": "u1", "created_by_id": "u1", "created_by_name": "Alice Tan"}
+
+
+def test_unknown_ids_are_negatively_cached(calls):
+    user_names.resolve_user_names([_row(updated={"created_by_id": "zzz"})], "tok")
+    out = user_names.resolve_user_names([_row(updated={"created_by_id": "zzz"})], "tok")
+    assert out[0].updated_data == {"created_by_id": "zzz"}
+    assert len(calls) == 1
+
+
+def test_negative_cache_expires(monkeypatch, calls):
+    now = [0.0]
+    monkeypatch.setattr(user_names.time, "monotonic", lambda: now[0])
+    user_names.resolve_user_names([_row(updated={"created_by_id": "zzz"})], "tok")
+    now[0] = 601.0
+    user_names.resolve_user_names([_row(updated={"created_by_id": "zzz"})], "tok")
+    assert len(calls) == 2
+
+
+def test_outage_backs_off_for_30_seconds(monkeypatch):
+    now = [100.0]
+    monkeypatch.setattr(user_names.time, "monotonic", lambda: now[0])
+    attempts = []
+
+    def boom(*a, **k):
+        attempts.append(1)
+        raise httpx.ConnectError("down")
+
+    monkeypatch.setattr(user_names.httpx, "post", boom)
+    rows = lambda: [_row(updated={"created_by_id": "u1"})]
+    user_names.resolve_user_names(rows(), "tok")
+    now[0] = 129.0
+    out = user_names.resolve_user_names(rows(), "tok")
+    assert out[0].updated_data == {"created_by_id": "u1"}
+    assert len(attempts) == 1
+    now[0] = 131.0
+    user_names.resolve_user_names(rows(), "tok")
+    assert len(attempts) == 2
+
+
+def test_failed_call_does_not_cache_unknown(monkeypatch, calls):
+    now = [0.0]
+    monkeypatch.setattr(user_names.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(user_names.httpx, "post", lambda *a, **k: httpx.Response(500, request=httpx.Request("POST", "http://users")))
+    user_names.resolve_user_names([_row(updated={"created_by_id": "u1"})], "tok")
+    assert user_names._cache == {}
