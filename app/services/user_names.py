@@ -10,6 +10,7 @@ logger = logging.getLogger(__name__)
 BASE_URL_ENV = "USER_SERVICE_URL"
 REQUEST_TIMEOUT_SECONDS = 2.0
 CACHE_TTL_SECONDS = 600
+OUTAGE_BACKOFF_SECONDS = 30
 MAX_CACHE_ENTRIES = 5000
 CHUNK_SIZE = 100
 DATA_FIELDS = ("original_data", "updated_data")
@@ -20,11 +21,14 @@ USER_ID_KEYS = frozenset({
     "tempcaregiverid", "guardianapplicationuserid",
 })
 
-_cache: Dict[str, Tuple[float, str]] = {}
+_cache: Dict[str, Tuple[float, Optional[str]]] = {}
+_outage_until = 0.0
 
 
 def reset_cache() -> None:
+    global _outage_until
     _cache.clear()
+    _outage_until = 0.0
 
 
 def _name_key(key: str) -> Optional[str]:
@@ -32,8 +36,6 @@ def _name_key(key: str) -> Optional[str]:
         return key[:-3] + "_name"
     if key.endswith("Id") or key.endswith("ID"):
         return key[:-2] + "Name"
-    if key.lower().endswith("id"):
-        return key[:-2] + "name"
     return None
 
 
@@ -84,6 +86,7 @@ def _annotate(data: Any, names: Dict[str, str]) -> Any:
 
 
 def resolve_user_names(logs: List[Any], token: str) -> List[Any]:
+    global _outage_until
     try:
         base_url = os.getenv(BASE_URL_ENV, "").rstrip("/")
         if not base_url or not token or not logs:
@@ -104,16 +107,21 @@ def resolve_user_names(logs: List[Any], token: str) -> List[Any]:
         for user_id in wanted:
             cached = _cache.get(user_id)
             if cached and cached[0] > now:
-                names[user_id] = cached[1]
+                if cached[1]:
+                    names[user_id] = cached[1]
             else:
                 missing.append(user_id)
 
-        if missing:
-            fetched = _fetch(base_url, token, missing)
-            for user_id, name in fetched.items():
+        if missing and now >= _outage_until:
+            try:
+                fetched = _fetch(base_url, token, missing)
+            except Exception:
+                _outage_until = now + OUTAGE_BACKOFF_SECONDS
+                raise
+            for user_id in missing:
                 if user_id not in _cache and len(_cache) >= MAX_CACHE_ENTRIES:
                     _cache.clear()
-                _cache[user_id] = (now + CACHE_TTL_SECONDS, name)
+                _cache[user_id] = (now + CACHE_TTL_SECONDS, fetched.get(user_id))
             names.update(fetched)
 
         if not names:
