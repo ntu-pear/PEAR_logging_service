@@ -36,6 +36,18 @@ def _environment_condition(query: LogQuery) -> Optional[dict]:
     }
 
 
+def _int_or_none(value):
+    """Entity IDs are ints in LogDocument; anything else (e.g. the string "None")
+    would fail validation and drop the whole log row, so map it to None."""
+    value = _clean_none_string(value)
+    if isinstance(value, bool):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _clean_none_string(value, replacement=None):
     """
     The Patient/Activity log formatters render a Python None through
@@ -445,6 +457,7 @@ def get_logs_by_param_patient(query: LogQuery, pageNo: int = 0, pageSize: int = 
                     method=action,
                     table=table,
                     patient_id=patient_id,
+                    entity_id=_int_or_none(entity_id),
                     patient_full_name=patient_full_name,
                     user=user,
                     user_full_name=user_full_name,
