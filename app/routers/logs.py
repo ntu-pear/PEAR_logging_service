@@ -25,7 +25,7 @@ def get_logs_by_param_patient(query: LogQuery = Depends(), pageNo: int = 0, page
 @router.get(
     "/Logs/Patient/{patient_id}/history",
     response_model=PaginatedResponse[LogDocument],
-    description="Change history for one patient (care roles only; excludes replica-sync entries)",
+    description="Change history for one patient across Patient and Activity service changes (care roles only; excludes replica-sync entries)",
 )
 def get_patient_history(
     patient_id: str = Path(..., min_length=1, max_length=64),
@@ -37,7 +37,7 @@ def get_patient_history(
         raise HTTPException(status_code=403, detail="Not permitted to view patient history")
     pageSize = min(max(pageSize, 1), 100)
     query = LogQuery(patient=patient_id)
-    db_logs, totalRecords, totalPages = logs_crud.get_logs_by_param_patient(query, pageNo, pageSize)
+    db_logs, totalRecords, totalPages = logs_crud.get_logs_by_param_patient(query, pageNo, pageSize, include_activity=True)
     rows = [
         row for row in db_logs
         if not getattr(row, "is_system_config", False) and not str(getattr(row, "table", "")).startswith("REF_")

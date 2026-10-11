@@ -1,4 +1,5 @@
 import json
+import os
 import re
 from typing import Optional, Literal, Tuple
 from fastapi import HTTPException
@@ -9,6 +10,30 @@ import math
 import logging
 
 logger = logging.getLogger("uvicorn")
+
+
+def _environment_condition(query: LogQuery) -> Optional[dict]:
+    """Environment filter for a log query.
+
+    An explicit ``query.environment`` always wins. Otherwise, when the
+    LOG_ENVIRONMENT setting is present (read at query time), restrict to this
+    environment plus legacy lines that carry no ``fields.environment`` at all.
+    With neither, no filter is applied (local dev).
+    """
+    if query.environment:
+        return {"match_phrase": {"fields.environment": query.environment}}
+    env = os.getenv("LOG_ENVIRONMENT", "").strip().lower()
+    if not env:
+        return None
+    return {
+        "bool": {
+            "should": [
+                {"match_phrase": {"fields.environment": env}},
+                {"bool": {"must_not": [{"exists": {"field": "fields.environment"}}]}},
+            ],
+            "minimum_should_match": 1,
+        }
+    }
 
 
 def _clean_none_string(value, replacement=None):
@@ -36,7 +61,8 @@ def _clean_none_string(value, replacement=None):
     return value
 
 
-def get_logs_by_param_patient(query: LogQuery, pageNo: int = 0, pageSize: int = 10):
+def get_logs_by_param_patient(query: LogQuery, pageNo: int = 0, pageSize: int = 10,
+                              include_activity: bool = False):
     offset = pageNo * pageSize
     must_conditions = []
 
@@ -74,7 +100,18 @@ def get_logs_by_param_patient(query: LogQuery, pageNo: int = 0, pageSize: int = 
             "minimum_should_match": 1,
         }
     })
-    must_conditions.append({"wildcard": {"log.file.path": "*pear_patient_service*"}})
+    if include_activity:
+        must_conditions.append({
+            "bool": {
+                "should": [
+                    {"wildcard": {"log.file.path": "*pear_patient_service*"}},
+                    {"wildcard": {"log.file.path": "*pear_activity_service*"}},
+                ],
+                "minimum_should_match": 1,
+            }
+        })
+    else:
+        must_conditions.append({"wildcard": {"log.file.path": "*pear_patient_service*"}})
 
     # Make sure that action is either create, update or delete
     must_conditions.append({
@@ -215,8 +252,9 @@ def get_logs_by_param_patient(query: LogQuery, pageNo: int = 0, pageSize: int = 
             }
         })
 
-    if query.environment:
-        must_conditions.append({"match_phrase": {"fields.environment": query.environment}})
+    env_condition = _environment_condition(query)
+    if env_condition:
+        must_conditions.append(env_condition)
 
     # Add timestamp range filter
     if query.start_date or query.end_date:
@@ -575,8 +613,9 @@ def get_logs_by_param_activity(query: LogQuery, pageNo: int = 0, pageSize: int =
             }
         })
 
-    if query.environment:
-        must_conditions.append({"match_phrase": {"fields.environment": query.environment}})
+    env_condition = _environment_condition(query)
+    if env_condition:
+        must_conditions.append(env_condition)
 
     # Add timestamp range filter
     if query.start_date or query.end_date:
@@ -835,8 +874,9 @@ def get_logs_by_param_user(
     # Note: log_type is inferred from action, not stored in ES
     # We filter by log_type in Python code after parsing
 
-    if query.environment:
-        must_conditions.append({"match_phrase": {"fields.environment": query.environment}})
+    env_condition = _environment_condition(query)
+    if env_condition:
+        must_conditions.append(env_condition)
 
     # Handle timestamp range filter
     if query.start_date or query.end_date:
@@ -1153,8 +1193,9 @@ def get_logs_by_param_system(
             }
         })
 
-    if query.environment:
-        must_conditions.append({"match_phrase": {"fields.environment": query.environment}})
+    env_condition = _environment_condition(query)
+    if env_condition:
+        must_conditions.append(env_condition)
 
     # Add timestamp range filter
     if query.start_date or query.end_date:
