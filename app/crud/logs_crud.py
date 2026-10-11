@@ -61,7 +61,8 @@ def _clean_none_string(value, replacement=None):
     return value
 
 
-def get_logs_by_param_patient(query: LogQuery, pageNo: int = 0, pageSize: int = 10):
+def get_logs_by_param_patient(query: LogQuery, pageNo: int = 0, pageSize: int = 10,
+                              include_activity: bool = False):
     offset = pageNo * pageSize
     must_conditions = []
 
@@ -99,7 +100,18 @@ def get_logs_by_param_patient(query: LogQuery, pageNo: int = 0, pageSize: int = 
             "minimum_should_match": 1,
         }
     })
-    must_conditions.append({"wildcard": {"log.file.path": "*pear_patient_service*"}})
+    if include_activity:
+        must_conditions.append({
+            "bool": {
+                "should": [
+                    {"wildcard": {"log.file.path": "*pear_patient_service*"}},
+                    {"wildcard": {"log.file.path": "*pear_activity_service*"}},
+                ],
+                "minimum_should_match": 1,
+            }
+        })
+    else:
+        must_conditions.append({"wildcard": {"log.file.path": "*pear_patient_service*"}})
 
     # Make sure that action is either create, update or delete
     must_conditions.append({
