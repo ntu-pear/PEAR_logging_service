@@ -29,6 +29,7 @@ jobs:
           echo "ES_USERNAME=${{ secrets.ES_USERNAME }}" >> .env
           echo "ES_PASSWORD=${{ secrets.ES_PASSWORD_STAGING }}" >> .env
           echo "USER_SERVICE_URL=${{ secrets.USER_SERVICE_URL_STAGING }}" >> .env
+          echo "LOG_ENVIRONMENT=staging" >> .env
           chmod 600 .env
 
       - name: Stop existing staging container (if running)
