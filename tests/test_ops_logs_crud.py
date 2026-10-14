@@ -93,6 +93,16 @@ def test_sensitive_rules_cover_the_three_spec_cases():
     assert "/patients/[0-9]+" in text and "mask=false" in text and "/admin/get_nric/" in text
 
 
+def test_sensitive_path_rules_match_http_path_or_path_keyword():
+    rules = ops_logs_crud.SENSITIVE_REQUEST_RULES
+    patients = rules[0]["bool"]["must"][1]["bool"]["should"]
+    assert [next(iter(c["regexp"])) for c in patients] == ["http_path.keyword", "path.keyword"]
+    assert rules[1] == {"wildcard": {"query.keyword": {"value": "*mask=false*", "case_insensitive": True}}}
+    nric = rules[2]["bool"]["should"]
+    assert [next(iter(c["wildcard"])) for c in nric] == ["http_path.keyword", "path.keyword"]
+    assert all(c["wildcard"][next(iter(c["wildcard"]))]["value"] == "*/admin/get_nric/*" for c in nric)
+
+
 def test_page_size_is_capped_and_paging_is_offset_based():
     body = ops_logs_crud.build_ops_query("error", OpsLogQuery(), page_no=3, page_size=500)
     assert body["size"] == 100 and body["from"] == 300
@@ -122,6 +132,74 @@ def test_parse_hit_handles_logstash_shapes():
     assert row.ops_type == "request"
     assert json.loads(row.message) == {"unexpected": "object"}
     assert row.status == 401 and row.duration_ms == 12.5
+
+
+def test_parse_hit_reads_http_path_and_falls_back_to_a_string_path():
+    base = {"timestamp": "t", "ops_type": "request"}
+    assert ops_logs_crud.parse_hit({**base, "http_path": "/a", "path": "/b"}).path == "/a"
+    assert ops_logs_crud.parse_hit({**base, "path": "/b"}).path == "/b"
+    assert ops_logs_crud.parse_hit({**base, "path": {"x": 1}}).path is None
+
+
+RAW_LINE = {
+    "schema": "pear-app-v1", "timestamp": "2026-10-14T01:02:03.000Z", "level": "WARNING", "service": "patient",
+    "environment": "stg", "ops_type": "auth", "logger": "pear.ops", "message": "Auth http_401",
+    "request_id": "r1", "user_id": "U1", "http_path": "/api/v1/patients/1", "method": "GET",
+    "status": 401, "auth_event": "http_401", "reason": "Not authenticated",
+}
+
+
+def test_parse_hit_recovers_missing_fields_from_event_original():
+    row = ops_logs_crud.parse_hit({
+        "@timestamp": "2026-10-14T01:02:04.000Z", "ops_type": "auth", "service": "patient",
+        "event": {"original": json.dumps(RAW_LINE), "dataset": "x"},
+    })
+    assert row.path == "/api/v1/patients/1" and row.event == "http_401"
+    assert row.method == "GET" and row.status == 401 and row.reason == "Not authenticated"
+    assert row.timestamp == "2026-10-14T01:02:03.000Z"  # no top-level "timestamp", so recovered
+    assert row.request_id == "r1" and row.user_id == "U1"
+
+
+def test_parse_hit_recovers_the_old_path_key_and_a_flat_event_original():
+    raw = {key: value for key, value in RAW_LINE.items() if key != "http_path"}
+    raw["path"] = "/old"
+    row = ops_logs_crud.parse_hit({"@timestamp": "t", "ops_type": "auth", "event.original": json.dumps(raw)})
+    assert row.path == "/old"
+
+
+def test_parse_hit_prefers_top_level_values_over_event_original():
+    row = ops_logs_crud.parse_hit({
+        "timestamp": "t", "ops_type": "auth", "http_path": "/top", "auth_event": "top_event",
+        "event": {"original": json.dumps(RAW_LINE)},
+    })
+    assert row.path == "/top" and row.event == "top_event"
+
+
+@pytest.mark.parametrize("original", [
+    "not json", "{broken", "[1, 2]", "null", json.dumps({**RAW_LINE, "schema": "other"}), 123, {"a": 1},
+    pytest.param("[" * 100000, id="deeply-nested"),
+])
+def test_parse_hit_ignores_event_original_that_is_not_an_ops_line(original):
+    row = ops_logs_crud.parse_hit({"timestamp": "t", "ops_type": "auth", "event": {"original": original}})
+    assert row is not None and row.path is None and row.event is None
+
+
+def test_parse_hit_reads_the_auth_event_name_from_auth_event():
+    row = ops_logs_crud.parse_hit({
+        "timestamp": "t", "ops_type": "auth", "auth_event": "login_failed",
+        "event": {"original": "{...}", "dataset": "x"},
+    })
+    assert row.event == "login_failed"
+
+
+def test_parse_hit_never_treats_the_ecs_event_object_as_the_auth_event():
+    row = ops_logs_crud.parse_hit({"timestamp": "t", "ops_type": "auth", "event": {"original": "{...}"}})
+    assert row.event is None
+
+
+def test_parse_hit_falls_back_to_a_string_event_for_old_documents():
+    assert ops_logs_crud.parse_hit({"timestamp": "t", "ops_type": "auth", "event": "http_401"}).event == "http_401"
+    assert ops_logs_crud.parse_hit({"timestamp": "t", "ops_type": "auth", "event": ["a", "http_403"]}).event == "http_403"
 
 
 @pytest.mark.parametrize("source", [{"ops_type": "error"}, {"timestamp": "2026-10-14T01:02:03Z"}])
