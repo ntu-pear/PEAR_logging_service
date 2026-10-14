@@ -1,3 +1,6 @@
+import logging
+
+from elasticsearch import ApiError, TransportError
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.auth.dependencies import require_roles
@@ -10,17 +13,22 @@ router = APIRouter()
 
 ADMIN_ONLY = require_roles("ADMIN")
 MAX_ID_CHARS = 64
+log = logging.getLogger("uvicorn")
 
 
 def _page(ops_type: str, query: OpsLogQuery, page_no: int, page_size: int, sensitive: bool = False):
-    for value in (query.request_id, query.user_id):
+    for value in (query.request_id, query.user_id, query.service, query.level, query.environment):
         if value is not None and len(value) > MAX_ID_CHARS:
-            raise HTTPException(status_code=400, detail="request_id and user_id are at most 64 characters")
+            raise HTTPException(
+                status_code=400,
+                detail="request_id, user_id, service, level and environment are at most 64 characters",
+            )
     try:
         rows, total, pages = ops_logs_crud.search_ops_logs(ops_type, query, page_no, page_size, sensitive=sensitive)
     except ops_logs_crud.OpsQueryError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    except Exception:
+    except (ApiError, TransportError):
+        log.exception("ops log search failed")
         raise HTTPException(status_code=503, detail="Log store unavailable")
     size = min(max(page_size, 1), ops_logs_crud.MAX_PAGE_SIZE)
     return PaginatedResponse(data=rows, pageNo=max(page_no, 0), pageSize=size, totalRecords=total, totalPages=pages)

@@ -23,6 +23,8 @@ SCHEMA = "pear-app-v1"
 OPS_TYPES = ("error", "request", "auth")
 MAX_PAGE_SIZE = 100
 MAX_RESULT_WINDOW = 10000
+TOTAL_HITS_CAP = MAX_RESULT_WINDOW + 1
+MAX_SPAN = timedelta(days=30)
 DEFAULT_WINDOW = "now-24h"
 SGT_OFFSET = timedelta(hours=8)
 
@@ -53,9 +55,9 @@ def _to_utc(value: str, end_of_day: bool) -> datetime:
             if parsed.tzinfo is not None:
                 return parsed.astimezone(timezone.utc).replace(tzinfo=None)
             return parsed - SGT_OFFSET
-        suffix = "T23:59:59" if end_of_day else "T00:00:00"
+        suffix = "T23:59:59.999999" if end_of_day else "T00:00:00"
         return datetime.fromisoformat(text + suffix) - SGT_OFFSET
-    except ValueError:
+    except (ValueError, OverflowError):
         raise OpsQueryError(f"Invalid date: {value!r}")
 
 
@@ -95,6 +97,15 @@ def build_ops_query(
     end = _to_utc(query.end_date, end_of_day=True) if query.end_date else None
     if start and end and end < start:
         raise OpsQueryError("end_date is before start_date")
+    try:
+        if end and not start:
+            start = end - timedelta(hours=24)
+        if start and end and end - start > MAX_SPAN:
+            raise OpsQueryError("The date range is at most 30 days")
+        if start and not end and datetime.now(timezone.utc).replace(tzinfo=None) - start > MAX_SPAN:
+            raise OpsQueryError("start_date is more than 30 days ago; give an end_date within 30 days of it")
+    except OverflowError:
+        raise OpsQueryError("Invalid date range")
     if start:
         time_range["gte"] = start.isoformat()
     if end:
@@ -111,8 +122,8 @@ def build_ops_query(
         "query": {"bool": {"must": must}},
         "size": size,
         "from": offset,
-        "sort": [{"@timestamp": {"order": query.timestamp_order}}],
-        "track_total_hits": True,
+        "sort": [{"@timestamp": {"order": query.timestamp_order}}, {"_doc": {"order": query.timestamp_order}}],
+        "track_total_hits": TOTAL_HITS_CAP,
     }
 
 

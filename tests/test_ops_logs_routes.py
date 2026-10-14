@@ -1,4 +1,5 @@
 import pytest
+from elastic_transport import ConnectionError as ESConnectionError
 from fastapi.testclient import TestClient
 
 from app.auth import dependencies
@@ -91,7 +92,7 @@ def test_store_down_is_503_without_leaking_details(monkeypatch):
     _as(monkeypatch, "ADMIN")
 
     def down(**kwargs):
-        raise ConnectionError("es at 10.0.0.1:9200 refused, password=secret")
+        raise ESConnectionError("es at 10.0.0.1:9200 refused, password=secret")
 
     monkeypatch.setattr(ops_logs_crud.es_service, "search_documents", down)
     response = client.get("/api/Logs/Errors", headers=AUTH)
@@ -108,3 +109,35 @@ def test_existing_audit_routes_are_unchanged(monkeypatch):
                         lambda query, pageNo=0, pageSize=10: seen.append("system") or ([], 0, 0))
     assert client.get("/api/Logs/System", headers=AUTH).status_code == 200
     assert seen == ["system"]
+
+
+@pytest.mark.parametrize("field", ["service", "level", "environment"])
+def test_overlong_filter_strings_are_400(monkeypatch, calls, field):
+    _as(monkeypatch, "ADMIN")
+    response = client.get("/api/Logs/Errors", headers=AUTH, params={field: "x" * 65})
+    assert response.status_code == 400
+    assert calls == []
+
+
+def test_store_failure_is_logged_but_not_leaked(monkeypatch, caplog):
+    import logging
+
+    _as(monkeypatch, "ADMIN")
+
+    def down(**kwargs):
+        raise ESConnectionError("refused")
+
+    monkeypatch.setattr(ops_logs_crud.es_service, "search_documents", down)
+    with caplog.at_level(logging.ERROR, logger="uvicorn"):
+        assert client.get("/api/Logs/Errors", headers=AUTH).status_code == 503
+    assert any("ops log search failed" in r.getMessage() and r.exc_info for r in caplog.records)
+
+
+def test_unexpected_bugs_surface_as_500(monkeypatch):
+    _as(monkeypatch, "ADMIN")
+
+    def bug(**kwargs):
+        raise KeyError("oops")
+
+    monkeypatch.setattr(ops_logs_crud.es_service, "search_documents", bug)
+    assert TestClient(app, raise_server_exceptions=False).get("/api/Logs/Errors", headers=AUTH).status_code == 500
