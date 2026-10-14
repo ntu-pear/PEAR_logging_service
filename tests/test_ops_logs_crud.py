@@ -96,7 +96,7 @@ def test_sensitive_rules_cover_the_three_spec_cases():
 def test_page_size_is_capped_and_paging_is_offset_based():
     body = ops_logs_crud.build_ops_query("error", OpsLogQuery(), page_no=3, page_size=500)
     assert body["size"] == 100 and body["from"] == 300
-    assert body["sort"] == [{"@timestamp": {"order": "desc"}}]
+    assert body["sort"] == [{"@timestamp": {"order": "desc"}}, {"_doc": {"order": "desc"}}]
 
 
 def test_negative_paging_is_clamped():
@@ -149,3 +149,38 @@ def test_search_skips_unparsable_hits_and_counts_pages(monkeypatch):
     assert [r.message for r in rows] == ["boom"]
     assert total == 41 and pages == 3
     assert seen["index"] == "*"
+
+
+def test_end_date_alone_gets_a_24_hour_lower_bound():
+    body = ops_logs_crud.build_ops_query("error", OpsLogQuery(end_date="2026-10-14T12:00:00"))
+    assert _range(body) == {"gte": "2026-10-13T04:00:00", "lte": "2026-10-14T04:00:00"}
+
+
+def test_date_only_end_covers_the_whole_last_second():
+    body = ops_logs_crud.build_ops_query("error", OpsLogQuery(start_date="2026-10-14", end_date="2026-10-14"))
+    assert _range(body)["lte"] == "2026-10-14T15:59:59.999999"
+
+
+def test_spans_over_30_days_are_query_errors():
+    with pytest.raises(ops_logs_crud.OpsQueryError):
+        ops_logs_crud.build_ops_query("error", OpsLogQuery(start_date="2026-01-01", end_date="2026-03-01"))
+    body = ops_logs_crud.build_ops_query("error", OpsLogQuery(start_date="2026-09-01", end_date="2026-09-30"))
+    assert "lte" in _range(body)
+
+
+def test_request_id_lookup_with_dates_is_not_forced_into_a_window():
+    body = ops_logs_crud.build_ops_query("request", OpsLogQuery(request_id="abc", end_date="2026-10-14"))
+    assert _range(body)["lte"] == "2026-10-14T15:59:59.999999"
+
+
+@pytest.mark.parametrize("value", ["0001-01-01", "0001-01-01T00:00:00Z"])
+def test_extreme_dates_are_query_errors_not_overflow(value):
+    for query in (OpsLogQuery(start_date=value), OpsLogQuery(end_date=value)):
+        with pytest.raises(ops_logs_crud.OpsQueryError):
+            ops_logs_crud.build_ops_query("error", query)
+
+
+def test_total_hits_are_bounded_and_sort_has_a_tie_breaker():
+    body = ops_logs_crud.build_ops_query("error", OpsLogQuery())
+    assert body["track_total_hits"] == 10001
+    assert body["sort"] == [{"@timestamp": {"order": "desc"}}, {"_doc": {"order": "desc"}}]
