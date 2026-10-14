@@ -853,6 +853,10 @@ def get_logs_by_param_user(
         "wildcard": {"log.file.path": "*pear_user_service*"}
     })
 
+    # Plan 4 operational lines share the User service log folder. They carry
+    # the pear-app-v1 schema marker; audit lines never do.
+    must_conditions.append({"bool": {"must_not": [{"match_phrase": {"schema": "pear-app-v1"}}]}})
+
     # User actions (login, logout, password_change, create, update, delete)
     # Fields are at top level in ES, not inside message
     if query.action:

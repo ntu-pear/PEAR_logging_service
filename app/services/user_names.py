@@ -18,7 +18,7 @@ DATA_FIELDS = ("original_data", "updated_data")
 USER_ID_KEYS = frozenset({
     "created_by_id", "modified_by_id", "createdbyid", "modifiedbyid", "doctorid", "doctor2id",
     "supervisorid", "supervisor2id", "caregiverid", "gametherapistid", "tempdoctorid",
-    "tempcaregiverid", "guardianapplicationuserid",
+    "tempcaregiverid", "guardianapplicationuserid", "administeredbyid",
 })
 
 _cache: Dict[str, Tuple[float, Optional[str]]] = {}
