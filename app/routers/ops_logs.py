@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from app.auth.dependencies import require_roles
 from app.auth.token_verifier import VerifiedUser
 from app.crud import ops_logs_crud
+from app.services.log_flags import apply_ops_flags
 from app.schemas.ops_log import OpsLogDocument, OpsLogQuery
 from app.schemas.response import PaginatedResponse
 
@@ -14,6 +15,18 @@ router = APIRouter()
 ADMIN_ONLY = require_roles("ADMIN")
 MAX_ID_CHARS = 64
 log = logging.getLogger("uvicorn")
+
+
+def _effective_range(ops_type: str, query: OpsLogQuery):
+    """The @timestamp range the page query used, or None (flags then derive it from the rows)."""
+    try:
+        must = ops_logs_crud.build_ops_query(ops_type, query)["query"]["bool"]["must"]
+        for clause in must:
+            if "range" in clause:
+                return dict(clause["range"]["@timestamp"])
+    except Exception:
+        pass
+    return None
 
 
 def _page(ops_type: str, query: OpsLogQuery, page_no: int, page_size: int, sensitive: bool = False):
@@ -30,6 +43,7 @@ def _page(ops_type: str, query: OpsLogQuery, page_no: int, page_size: int, sensi
     except (ApiError, TransportError):
         log.exception("ops log search failed")
         raise HTTPException(status_code=503, detail="Log store unavailable")
+    rows = apply_ops_flags(rows, _effective_range(ops_type, query))
     size = min(max(page_size, 1), ops_logs_crud.MAX_PAGE_SIZE)
     return PaginatedResponse(data=rows, pageNo=max(page_no, 0), pageSize=size, totalRecords=total, totalPages=pages)
 
