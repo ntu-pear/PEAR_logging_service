@@ -20,7 +20,7 @@ class OpsLogDocument(BaseModel):
     query: Optional[str] = None
     status: Optional[int] = None
     duration_ms: Optional[float] = None
-    event: Optional[str] = None
+    event: Optional[str] = None  # auth event name; stored as "auth_event" in Elasticsearch
     reason: Optional[str] = None
     exception_type: Optional[str] = None
     stack_trace: Optional[str] = None
