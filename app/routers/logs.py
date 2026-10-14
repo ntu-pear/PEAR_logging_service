@@ -46,7 +46,9 @@ def get_logs_by_param_patient(query: LogQuery = Depends(), pageNo: int = 0, page
     if pageSize > 100:
         pageSize = 100
     db_logs, totalRecords, totalPages = logs_crud.get_logs_by_param_patient(query, pageNo, pageSize)
-    rows = apply_audit_flags(redact_clinical(db_logs, user.roleName), _audit_range(query))
+    # Flags first: their reasons hold field/table names, actor names and counts, never values,
+    # so ADMIN keeps them while the clinical data below is redacted.
+    rows = redact_clinical(apply_audit_flags(db_logs, _audit_range(query)), user.roleName)
     return PaginatedResponse(data=resolve_user_names(rows, token), pageNo=pageNo,pageSize=pageSize,totalRecords=totalRecords, totalPages=totalPages)
 
 @router.get(
@@ -80,7 +82,9 @@ def get_logs_by_param_activity(query: LogQuery = Depends(), pageNo: int = 0, pag
     if pageSize > 100:
         pageSize = 100
     db_logs, totalRecords, totalPages = logs_crud.get_logs_by_param_activity(query, pageNo, pageSize)
-    rows = apply_audit_flags(redact_clinical(db_logs, user.roleName), _audit_range(query))
+    # Flags first: their reasons hold field/table names, actor names and counts, never values,
+    # so ADMIN keeps them while the clinical data below is redacted.
+    rows = redact_clinical(apply_audit_flags(db_logs, _audit_range(query)), user.roleName)
     return PaginatedResponse(data=resolve_user_names(rows, token), pageNo=pageNo,pageSize=pageSize,totalRecords=totalRecords, totalPages=totalPages)
 
 @router.get("/Logs/User", description="Get all user related logs")
