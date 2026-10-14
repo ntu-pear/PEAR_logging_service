@@ -218,3 +218,7 @@ def test_failed_call_does_not_cache_unknown(monkeypatch, calls):
     monkeypatch.setattr(user_names.httpx, "post", lambda *a, **k: httpx.Response(500, request=httpx.Request("POST", "http://users")))
     user_names.resolve_user_names([_row(updated={"created_by_id": "u1"})], "tok")
     assert user_names._cache == {}
+
+def test_administered_by_id_is_a_user_id_key():
+    from app.services.user_names import USER_ID_KEYS
+    assert "administeredbyid" in USER_ID_KEYS
