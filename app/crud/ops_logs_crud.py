@@ -28,17 +28,26 @@ MAX_SPAN = timedelta(days=30)
 DEFAULT_WINDOW = "now-24h"
 SGT_OFFSET = timedelta(hours=8)
 
+# Ops lines write the request path as "http_path" (Logstash strips a top-level
+# "path"); "path" stays as an alternative for lines written before that rename.
+PATH_FIELDS = ("http_path.keyword", "path.keyword")
+
+
+def _path_rule(kind: str, value: Any) -> Dict[str, Any]:
+    return {"bool": {"should": [{kind: {field: value}} for field in PATH_FIELDS], "minimum_should_match": 1}}
+
+
 # The "Sensitive access" preset (spec 7.3). This is the one place the list lives.
 SENSITIVE_REQUEST_RULES: Tuple[Dict[str, Any], ...] = (
     # Patient record reads: GET /patients/{id} and GET /api/v1/patients/{id}
     {"bool": {"must": [
         {"match_phrase": {"method": "GET"}},
-        {"regexp": {"path.keyword": "(/api/v1)?/patients/[0-9]+/?"}},
+        _path_rule("regexp", "(/api/v1)?/patients/[0-9]+/?"),
     ]}},
     # Unmasking: any request with mask=false in its query string
     {"wildcard": {"query.keyword": {"value": "*mask=false*", "case_insensitive": True}}},
     # The admin NRIC lookup: /admin/get_nric/{id}
-    {"wildcard": {"path.keyword": {"value": "*/admin/get_nric/*", "case_insensitive": True}}},
+    _path_rule("wildcard", {"value": "*/admin/get_nric/*", "case_insensitive": True}),
 )
 
 
@@ -173,7 +182,64 @@ def _auth_event(source: Dict[str, Any]) -> Optional[str]:
     return legacy if isinstance(legacy, str) else None
 
 
+def _path(source: Dict[str, Any]) -> Optional[str]:
+    """The request path: "http_path", else a string "path"."""
+    for key in ("http_path", "path"):
+        value = _last(source.get(key))
+        if isinstance(value, str):
+            return value
+    return None
+
+
+# Fields parse_hit reads from the top level of a stored document.
+EXPECTED_FIELDS = (
+    "timestamp", "ops_type", "message", "level", "service", "environment", "logger", "request_id",
+    "user_id", "method", "query", "status", "duration_ms", "reason", "exception_type", "stack_trace",
+    "auth_event",
+)
+
+
+def _original_line(source: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """The raw ops line Filebeat keeps in event.original, when it is one."""
+    event = _last(source.get("event"))
+    original = event.get("original") if isinstance(event, dict) else None
+    if original is None:
+        original = source.get("event.original")
+    original = _last(original)
+    if not isinstance(original, str):
+        return None
+    try:
+        line = json.loads(original)
+    except (ValueError, RecursionError):
+        return None
+    if isinstance(line, dict) and line.get("schema") == SCHEMA:
+        return line
+    return None
+
+
+def _recover(source: Dict[str, Any]) -> Dict[str, Any]:
+    """Fill fields Logstash dropped from the raw line in event.original."""
+    missing = [key for key in EXPECTED_FIELDS if _last(source.get(key)) is None]
+    if _path(source) is None:
+        missing.append("http_path")
+    if not missing:
+        return source
+    line = _original_line(source)
+    if line is None:
+        return source
+    merged = dict(source)
+    for key in missing:
+        if key == "http_path":
+            value = next((line[k] for k in ("http_path", "path") if isinstance(line.get(k), str)), None)
+        else:
+            value = line.get(key)
+        if value is not None:
+            merged[key] = value
+    return merged
+
+
 def parse_hit(source: Dict[str, Any]) -> Optional[OpsLogDocument]:
+    source = _recover(source)
     timestamp = _text(source.get("timestamp")) or _text(source.get("@timestamp"))
     ops_type = _text(source.get("ops_type"))
     if not timestamp or not ops_type:
@@ -190,7 +256,7 @@ def parse_hit(source: Dict[str, Any]) -> Optional[OpsLogDocument]:
             request_id=_text(source.get("request_id")),
             user_id=_text(source.get("user_id")),
             method=_text(source.get("method")),
-            path=_text(source.get("path")),
+            path=_path(source),
             query=_text(source.get("query")),
             status=_int(source.get("status")),
             duration_ms=_float(source.get("duration_ms")),
