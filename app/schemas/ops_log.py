@@ -1,6 +1,8 @@
-from typing import Literal, Optional
+from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field
+
+from app.schemas.log_document import Flag
 
 
 class OpsLogDocument(BaseModel):
@@ -24,6 +26,7 @@ class OpsLogDocument(BaseModel):
     reason: Optional[str] = None
     exception_type: Optional[str] = None
     stack_trace: Optional[str] = None
+    flags: List[Flag] = []
 
 
 class OpsLogQuery(BaseModel):
