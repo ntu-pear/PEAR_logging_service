@@ -36,6 +36,17 @@ jobs:
           echo "ES_PASSWORD=${{ secrets.ES_PASSWORD }}" >> .env
           echo "USER_SERVICE_URL=${{ secrets.USER_SERVICE_URL }}" >> .env
           echo "LOG_ENVIRONMENT=production" >> .env
+          echo "FLAG_FAILED_LOGIN_COUNT=${{ vars.FLAG_FAILED_LOGIN_COUNT || '5' }}" >> .env
+          echo "FLAG_FAILED_LOGIN_WINDOW_MIN=${{ vars.FLAG_FAILED_LOGIN_WINDOW_MIN || '10' }}" >> .env
+          echo "FLAG_BULK_DELETE_COUNT=${{ vars.FLAG_BULK_DELETE_COUNT || '10' }}" >> .env
+          echo "FLAG_BULK_DELETE_WINDOW_MIN=${{ vars.FLAG_BULK_DELETE_WINDOW_MIN || '10' }}" >> .env
+          echo "FLAG_OFF_HOURS_START=${{ vars.FLAG_OFF_HOURS_START || '22:00' }}" >> .env
+          echo "FLAG_OFF_HOURS_END=${{ vars.FLAG_OFF_HOURS_END || '07:00' }}" >> .env
+          echo "FLAG_MASS_ACCESS_COUNT=${{ vars.FLAG_MASS_ACCESS_COUNT || '30' }}" >> .env
+          echo "FLAG_MASS_ACCESS_WINDOW_MIN=${{ vars.FLAG_MASS_ACCESS_WINDOW_MIN || '10' }}" >> .env
+          echo "FLAG_SENSITIVE_FIELDS=${{ vars.FLAG_SENSITIVE_FIELDS || 'nric,NRIC,dateOfBirth,DOB,dob' }}" >> .env
+          echo "FLAG_ERROR_SPIKE_COUNT=${{ vars.FLAG_ERROR_SPIKE_COUNT || '20' }}" >> .env
+          echo "FLAG_ERROR_SPIKE_WINDOW_MIN=${{ vars.FLAG_ERROR_SPIKE_WINDOW_MIN || '5' }}" >> .env
 
       - name: Delete old deployment
         run: |
