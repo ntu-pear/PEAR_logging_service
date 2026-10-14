@@ -174,8 +174,26 @@ def test_top_endpoints_ask_for_p95_of_duration(monkeypatch, es):
     client.get(URL, headers=AUTH)
     body = [b for b in es if "endpoints" in b.get("aggs", {})][0]
     agg = body["aggs"]["endpoints"]
-    assert agg["terms"] == {"field": "http_path.keyword", "size": 10}
+    assert agg["terms"] == {"field": "http_path.keyword", "size": 50}
     assert agg["aggs"]["p95"]["percentiles"] == {"field": "duration_ms", "percents": [95]}
+
+
+def test_top_endpoints_merge_record_ids_into_one_route(monkeypatch):
+    def bucket(key, n, p95):
+        return {"key": key, "doc_count": n, "p95": {"values": {"95.0": p95}}}
+
+    monkeypatch.setattr(log_stats_crud, "_search", lambda **kw: {"aggregations": {"endpoints": {"buckets": [
+        bucket("/api/v1/patients/1", 5, 100.0),
+        bucket("/api/v1/login", 8, 20.0),
+        bucket("/api/v1/patients/2?mask=false", 4, 300.0),
+        bucket("/api/v1/patients/7f9c2d1e-1a2b-4c3d-8e9f-0a1b2c3d4e5f/allergies", 1, None),
+        bucket("/api/v1/patients/9/allergies", 2, 50.0),
+    ]}}})
+    assert [e.model_dump() for e in log_stats_crud._top_endpoints("now-24h")] == [
+        {"path": "/api/v1/patients/{id}", "count": 9, "p95_ms": 300.0},
+        {"path": "/api/v1/login", "count": 8, "p95_ms": 20.0},
+        {"path": "/api/v1/patients/{id}/allergies", "count": 3, "p95_ms": 50.0},
+    ]
 
 
 # ---------------------------------------------------------------- response
