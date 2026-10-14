@@ -372,6 +372,34 @@ def _ops_base(ops_type: str) -> List[Dict[str, Any]]:
     return [{"match_phrase": {"schema": SCHEMA}}, {"match_phrase": {"ops_type": ops_type}}] + _env_scope()
 
 
+def failed_login_query() -> Dict[str, Any]:
+    return {"bool": {
+        "must": _ops_base("auth") + [{"match_phrase": {"auth_event": "login_failed"}},
+                                     {"exists": {"field": "user_id"}}],
+        "must_not": [{"match_phrase": {"user_id": "unknown"}}],
+    }}
+
+
+def mass_access_query() -> Dict[str, Any]:
+    return {"bool": {"must": _ops_base("request") + [
+        {"match_phrase": {"method": "GET"}},
+        _path_rule("regexp", PATIENT_READ_PATH),
+        {"exists": {"field": "user_id"}},
+    ]}}
+
+
+def error_spike_query() -> Dict[str, Any]:
+    return {"bool": {
+        "must": [{"match_phrase": {"schema": SCHEMA}}] + _env_scope(),
+        "should": [
+            {"match_phrase": {"ops_type": "error"}},
+            {"bool": {"must": [{"match_phrase": {"ops_type": "request"}},
+                               {"range": {"status": {"gte": 500}}}]}},
+        ],
+        "minimum_should_match": 1,
+    }}
+
+
 def _is_failed_login(r: OpsLogDocument) -> bool:
     return r.ops_type == "auth" and r.event == "login_failed" and bool(r.user_id) and r.user_id != "unknown"
 
@@ -394,38 +422,19 @@ def apply_ops_flags(rows: List[OpsLogDocument], time_range: Optional[Dict[str, A
             _add(row, mask_false(row))
         window = _range_for(rows, time_range, timezone.utc)
         if window and any(_is_failed_login(r) for r in rows):
-            query = {"bool": {
-                "must": _ops_base("auth") + [{"match_phrase": {"auth_event": "login_failed"}},
-                                             {"exists": {"field": "user_id"}}],
-                "must_not": [{"match_phrase": {"user_id": "unknown"}}],
-            }}
-            hot = burst_buckets(_search, "*", query, "user_id.keyword", cfg.failed_login_window_min,
+            hot = burst_buckets(_search, "*", failed_login_query(), "user_id.keyword", cfg.failed_login_window_min,
                                 cfg.failed_login_count, window)
             flag_rows(rows, hot, key_fn=lambda r: r.user_id, window_min=cfg.failed_login_window_min,
                       code="failed_login_burst", severity="warning", row_filter=_is_failed_login,
                       reason_fn=lambda key, n, w: "%d failed logins for %s in %d min" % (n, key, w))
         if window and any(_is_patient_read(r) for r in rows):
-            query = {"bool": {"must": _ops_base("request") + [
-                {"match_phrase": {"method": "GET"}},
-                _path_rule("regexp", PATIENT_READ_PATH),
-                {"exists": {"field": "user_id"}},
-            ]}}
-            hot = burst_buckets(_search, "*", query, "user_id.keyword", cfg.mass_access_window_min,
+            hot = burst_buckets(_search, "*", mass_access_query(), "user_id.keyword", cfg.mass_access_window_min,
                                 cfg.mass_access_count, window, distinct_field="http_path.keyword")
             flag_rows(rows, hot, key_fn=lambda r: r.user_id, window_min=cfg.mass_access_window_min,
                       code="mass_access", severity="critical", row_filter=_is_patient_read,
                       reason_fn=lambda key, n, w: "%d distinct patient records read by %s in %d min" % (n, key, w))
         if window and any(_is_server_error(r) for r in rows):
-            query = {"bool": {
-                "must": [{"match_phrase": {"schema": SCHEMA}}] + _env_scope(),
-                "should": [
-                    {"match_phrase": {"ops_type": "error"}},
-                    {"bool": {"must": [{"match_phrase": {"ops_type": "request"}},
-                                       {"range": {"status": {"gte": 500}}}]}},
-                ],
-                "minimum_should_match": 1,
-            }}
-            hot = burst_buckets(_search, "*", query, "service.keyword", cfg.error_spike_window_min,
+            hot = burst_buckets(_search, "*", error_spike_query(), "service.keyword", cfg.error_spike_window_min,
                                 cfg.error_spike_count, window)
             flag_rows(rows, hot, key_fn=lambda r: r.service, window_min=cfg.error_spike_window_min,
                       code="error_spike", severity="warning", row_filter=_is_server_error,
