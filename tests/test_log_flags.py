@@ -260,6 +260,57 @@ def test_burst_buckets_span_over_30_days_is_rejected():
                                 {"gte": "2026-08-01T00:00:00", "lte": "2026-10-01T00:00:00"})
 
 
+@pytest.mark.parametrize("window_min,time_range,expected", [
+    (10, {"gte": "now-1h"}, 10),
+    (10, {"gte": "2026-10-14T00:00:00", "lte": "2026-10-14T06:00:00"}, 10),
+    (10, {"gte": "now-7d"}, 11),                      # 10080 min / 1000 -> 11
+    (10, {"gte": "now-30d"}, 44),                     # 43200 min / 1000 -> 44
+    (45, {"gte": "now-30d"}, 45),                     # configured window already wider
+    (10, {"gte": "2026-09-15T00:00:00Z", "lte": "2026-10-15T00:00:00Z"}, 44),
+    (5, {"gte": "now-30d", "lte": "now-1d"}, 42),     # 41760 min / 1000 -> 42
+    (10, {}, 44),                                     # unknown span -> assume 30 days
+])
+def test_effective_interval_min(window_min, time_range, expected):
+    assert log_flags._effective_interval_min(window_min, time_range) == expected
+
+
+def test_burst_buckets_30_day_range_caps_histogram_buckets():
+    seen = {}
+
+    def es(index, body, headers=None):
+        seen["body"] = body
+        return agg_response([])
+
+    hot = log_flags.burst_buckets(es, "*", {"match_all": {}}, "f", 10, 5, {"gte": "now-30d"})
+    windows = seen["body"]["aggs"]["windows"]
+    assert windows["date_histogram"]["fixed_interval"] == "44m"
+    assert hot.interval_min == 44
+    minutes = 30 * 24 * 60
+    histogram_buckets = -(-minutes // 44)
+    assert histogram_buckets <= 1000
+    assert histogram_buckets * windows["aggs"]["by_key"]["terms"]["size"] <= 50000
+
+
+def test_burst_buckets_short_range_keeps_configured_window():
+    hot = log_flags.burst_buckets(lambda **k: {}, "*", {"match_all": {}}, "f", 10, 5, {"gte": "now-1h"})
+    assert hot.interval_min == 10
+
+
+def test_flag_rows_uses_widened_interval_in_bucket_and_reason():
+    interval_ms = 45 * 60 * 1000
+    stamp = log_flags._epoch_ms(log_flags._parse_ts("2026-10-14T01:03:00Z"))
+    start = stamp - stamp % interval_ms
+    buckets = log_flags.HotBuckets({("u1", start)})
+    buckets.counts[("u1", start)] = 41
+    buckets.interval_min = 45
+    rows = [ops("auth", ts="2026-10-14T01:03:00Z", user_id="u1")]
+    log_flags.flag_rows(
+        rows, buckets, key_fn=lambda r: r.user_id, window_min=10, code="failed_login_burst",
+        severity="warning", reason_fn=lambda key, n, w: f"{n} failed logins for {key} in {w} min",
+    )
+    assert rows[0].flags[0].reason == "41 failed logins for u1 in 45 min"
+
+
 def test_burst_buckets_missing_aggregations_is_empty():
     assert log_flags.burst_buckets(lambda **k: {}, "*", {"match_all": {}}, "f", 10, 5, {"gte": "now-1h"}) == set()
 

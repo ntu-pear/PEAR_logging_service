@@ -11,6 +11,7 @@ Flag reasons carry actor names, ids, table and field names and counts only,
 never the values of any record field.
 """
 import logging
+import math
 import os
 import re
 from dataclasses import dataclass
@@ -29,6 +30,7 @@ logger = logging.getLogger("uvicorn")
 SGT = timezone(timedelta(hours=8))
 MAX_SPAN = timedelta(days=30)
 MAX_TERMS = 50
+MAX_HISTOGRAM_BUCKETS = 1000  # x MAX_TERMS = 50k, under Elasticsearch's default 65536 max_buckets
 JSON_HEADERS = {"Content-Type": "application/json"}
 
 DEFAULT_SENSITIVE_FIELDS = ("nric", "NRIC", "dateOfBirth", "DOB", "dob")
@@ -145,6 +147,31 @@ def _check_span(time_range: Dict[str, Any]) -> None:
         raise ValueError("time range is longer than 30 days")
 
 
+def _bound_dt(value: Any, now: datetime) -> Optional[datetime]:
+    if isinstance(value, str) and value.strip() == "now":
+        return now
+    ago = _range_bound_seconds_ago(value)
+    if ago is not None:
+        return now - timedelta(seconds=ago)
+    return _parse_ts(value)
+
+
+def _range_minutes(time_range: Dict[str, Any]) -> float:
+    """Length of the range in minutes; the 30 day maximum when it cannot be worked out."""
+    now = datetime.now(timezone.utc)
+    start = _bound_dt(time_range.get("gte"), now)
+    end = _bound_dt(time_range.get("lte"), now) if time_range.get("lte") else now
+    if start is None or end is None:
+        return MAX_SPAN.total_seconds() / 60
+    return max((end - start).total_seconds() / 60, 0)
+
+
+def _effective_interval_min(window_min: int, time_range: Dict[str, Any]) -> int:
+    """The histogram interval: the window, widened so the range is at most
+    MAX_HISTOGRAM_BUCKETS buckets (keeps buckets x terms under search.max_buckets)."""
+    return max(window_min, math.ceil(_range_minutes(time_range) / MAX_HISTOGRAM_BUCKETS))
+
+
 def _range_for(rows: Iterable[Any], time_range: Optional[Dict[str, Any]],
                naive_tz: timezone) -> Optional[Dict[str, Any]]:
     """The request's time range, or one derived from the rows when it has none."""
@@ -214,6 +241,7 @@ class HotBuckets(set):
     def __init__(self, iterable: Iterable[Tuple[Any, int]] = ()):
         super().__init__(iterable)
         self.counts: Dict[Tuple[Any, int], int] = {}
+        self.interval_min: Optional[int] = None  # histogram interval actually used
 
 
 def burst_buckets(
@@ -229,10 +257,12 @@ def burst_buckets(
     """(key, bucket_start_ms) pairs with at least `threshold` hits in one fixed bucket.
 
     One date_histogram(fixed_interval=<window>m) x terms(field, size 50) aggregation,
-    no hits returned. With distinct_field, the count is the number of distinct values
+    no hits returned. The interval is widened on long ranges to stay within 1000
+    histogram buckets (see HotBuckets.interval_min). With distinct_field, the count is the number of distinct values
     of that field instead of the number of documents.
     """
     _check_span(time_range)
+    interval_min = _effective_interval_min(window_min, time_range)
     base = dict(query["bool"]) if isinstance(query, dict) and "bool" in query else {"must": [query]}
     must = base.get("must", [])
     must = list(must) if isinstance(must, list) else [must]
@@ -255,7 +285,7 @@ def burst_buckets(
         "aggs": {"windows": {
             "date_histogram": {
                 "field": "@timestamp",
-                "fixed_interval": "%dm" % window_min,
+                "fixed_interval": "%dm" % interval_min,
                 "min_doc_count": 1,
             },
             "aggs": {"by_key": by_key},
@@ -263,6 +293,7 @@ def burst_buckets(
     }
     response = es_search(index=index, body=body, headers=JSON_HEADERS)
     hot = HotBuckets()
+    hot.interval_min = interval_min
     for window in ((response or {}).get("aggregations", {}).get("windows", {}).get("buckets", [])):
         start = int(window["key"])
         for bucket in window["by_key"]["buckets"]:
@@ -289,6 +320,7 @@ def flag_rows(
     """Add a flag to each row whose (key, bucket) is hot. Mutates rows."""
     if not buckets:
         return
+    window_min = buckets.interval_min or window_min  # the interval the aggregation really used
     interval = window_min * 60 * 1000
     for row in rows:
         if row_filter and not row_filter(row):
