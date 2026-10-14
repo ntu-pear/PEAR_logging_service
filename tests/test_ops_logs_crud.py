@@ -124,6 +124,24 @@ def test_parse_hit_handles_logstash_shapes():
     assert row.status == 401 and row.duration_ms == 12.5
 
 
+def test_parse_hit_reads_the_auth_event_name_from_auth_event():
+    row = ops_logs_crud.parse_hit({
+        "timestamp": "t", "ops_type": "auth", "auth_event": "login_failed",
+        "event": {"original": "{...}", "dataset": "x"},
+    })
+    assert row.event == "login_failed"
+
+
+def test_parse_hit_never_treats_the_ecs_event_object_as_the_auth_event():
+    row = ops_logs_crud.parse_hit({"timestamp": "t", "ops_type": "auth", "event": {"original": "{...}"}})
+    assert row.event is None
+
+
+def test_parse_hit_falls_back_to_a_string_event_for_old_documents():
+    assert ops_logs_crud.parse_hit({"timestamp": "t", "ops_type": "auth", "event": "http_401"}).event == "http_401"
+    assert ops_logs_crud.parse_hit({"timestamp": "t", "ops_type": "auth", "event": ["a", "http_403"]}).event == "http_403"
+
+
 @pytest.mark.parametrize("source", [{"ops_type": "error"}, {"timestamp": "2026-10-14T01:02:03Z"}])
 def test_parse_hit_skips_rows_without_timestamp_or_type(source):
     assert ops_logs_crud.parse_hit(source) is None

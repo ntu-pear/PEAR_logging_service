@@ -163,6 +163,16 @@ def _float(value: Any) -> Optional[float]:
         return None
 
 
+def _auth_event(source: Dict[str, Any]) -> Optional[str]:
+    """The auth event name. Lines carry it as "auth_event"; "event" is the ECS
+    object Filebeat adds, so it only counts when an old document has a string there."""
+    name = _text(source.get("auth_event"))
+    if name:
+        return name
+    legacy = _last(source.get("event"))
+    return legacy if isinstance(legacy, str) else None
+
+
 def parse_hit(source: Dict[str, Any]) -> Optional[OpsLogDocument]:
     timestamp = _text(source.get("timestamp")) or _text(source.get("@timestamp"))
     ops_type = _text(source.get("ops_type"))
@@ -184,7 +194,7 @@ def parse_hit(source: Dict[str, Any]) -> Optional[OpsLogDocument]:
             query=_text(source.get("query")),
             status=_int(source.get("status")),
             duration_ms=_float(source.get("duration_ms")),
-            event=_text(source.get("event")),
+            event=_auth_event(source),
             reason=_text(source.get("reason")),
             exception_type=_text(source.get("exception_type")),
             stack_trace=_text(source.get("stack_trace")),
