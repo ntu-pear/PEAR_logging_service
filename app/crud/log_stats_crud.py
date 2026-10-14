@@ -1,7 +1,7 @@
 """Aggregated statistics over the logs, for the admin dashboard.
 
 One bounded Elasticsearch query per section, each with size 0 aggregations
-(terms never above 20), over a window of at most 30 days. Ops lines are found
+(terms never above 20, except 50 raw paths merged by route), over a window of at most 30 days. Ops lines are found
 by schema "pear-app-v1" plus ops_type, audit lines by the audit shape from
 log_flags. Times are bucket starts in ISO 8601 UTC; hourly buckets for 24h and
 Singapore calendar days for 7d and 30d.
@@ -10,6 +10,7 @@ A failing section raises (the router answers 503). Only recent_flags degrades:
 each flag detector that fails is logged and skipped.
 """
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -34,6 +35,8 @@ JSON_HEADERS = {"Content-Type": "application/json"}
 MAX_SERVICES = 20
 MAX_FLAGS = 20
 TOP_ENDPOINTS = 10
+ENDPOINT_BUCKETS = 50  # raw paths fetched, then merged by route
+_ID_SEGMENT = re.compile(r"^(\d+|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|[0-9a-fA-F]{24,})$")
 TOP_N = 5
 STATUS_CLASSES = ("2xx", "3xx", "4xx", "5xx")
 
@@ -133,14 +136,27 @@ def _p95(bucket: Dict[str, Any]) -> Optional[float]:
     return None
 
 
+def _route(path: str) -> str:
+    """The path without its query string, with record ids (numbers, UUIDs) as {id}."""
+    segments = path.split("?", 1)[0].split("/")
+    return "/".join("{id}" if _ID_SEGMENT.match(s) else s for s in segments)
+
+
 def _top_endpoints(start: str) -> List[TopEndpoint]:
     body = _size_zero(_ops(start, _REQUEST), {
-        "endpoints": {"terms": {"field": "http_path.keyword", "size": TOP_ENDPOINTS}, "aggs": {
+        "endpoints": {"terms": {"field": "http_path.keyword", "size": ENDPOINT_BUCKETS}, "aggs": {
             "p95": {"percentiles": {"field": "duration_ms", "percents": [95]}},
         }},
     })
-    return [TopEndpoint(path=str(b["key"]), count=int(b["doc_count"]), p95_ms=_p95(b))
-            for b in _buckets(_aggs(_run(body)).get("endpoints"))]
+    merged: Dict[str, List[Any]] = {}
+    for b in _buckets(_aggs(_run(body)).get("endpoints")):
+        route, p95 = _route(str(b["key"])), _p95(b)
+        entry = merged.setdefault(route, [0, None])
+        entry[0] += int(b["doc_count"])
+        # max of the member p95s: an upper bound, not the true p95 of the merged route
+        entry[1] = p95 if entry[1] is None else (entry[1] if p95 is None else max(entry[1], p95))
+    top = sorted(merged.items(), key=lambda item: item[1][0], reverse=True)[:TOP_ENDPOINTS]
+    return [TopEndpoint(path=route, count=count, p95_ms=p95) for route, (count, p95) in top]
 
 
 def _status_mix(start: str) -> Dict[str, int]:
