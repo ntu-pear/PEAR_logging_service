@@ -111,6 +111,26 @@ def test_admin_flags_carry_no_clinical_values(monkeypatch, audit_rows):
     assert "Penicillin" not in text and "S1234567A" not in text and CLINICAL not in text
 
 
+@pytest.mark.parametrize("path,fn", [
+    ("/api/Logs/Patient", "get_logs_by_param_patient"),
+    ("/api/Logs/Activity", "get_logs_by_param_activity"),
+])
+def test_admin_sees_sensitive_change_flag_and_data_stays_redacted(monkeypatch, path, fn):
+    row = _audit_row(method="UPDATE", table="Patient", timestamp="2026-10-01T10:00:00",
+                     original_data={"nric": "S1234567A", "name": "Tan"},
+                     updated_data={"nric": "S7654321B", "name": "Tan"})
+    monkeypatch.setattr(logs_crud, fn, lambda query, pageNo=0, pageSize=10, include_activity=False: ([row], 1, 1))
+    monkeypatch.setattr(log_flags, "_search", lambda **kw: {})
+    _as(monkeypatch, "ADMIN")
+    data = client.get(path, headers=AUTH).json()["data"][0]
+    flags = [f for f in data["flags"] if f["code"] == "sensitive_change"]
+    assert len(flags) == 1 and flags[0]["severity"] == "critical"
+    assert "nric" in flags[0]["reason"]
+    assert "S1234567A" not in flags[0]["reason"] and "S7654321B" not in flags[0]["reason"]
+    assert data["original_data"] is None and data["updated_data"] is None
+    assert data["message"] == "" and data["patient_full_name"] is None
+
+
 def test_audit_flags_use_the_request_time_range(monkeypatch, audit_rows):
     _as(monkeypatch, "SUPERVISOR")
     seen = {}
