@@ -97,7 +97,8 @@ def test_flag_failure_leaves_audit_page_working(monkeypatch, audit_rows, path, f
     response = client.get(path, headers=AUTH)
     assert response.status_code == 200
     assert response.json()["totalRecords"] == 1
-    assert response.json()["data"][0]["flags"] == []
+    codes = {f["code"] for f in response.json()["data"][0]["flags"]}
+    assert codes == {"off_hours", "sensitive_change"}  # row-local flags stay; bulk_delete is skipped
 
 
 def test_admin_flags_carry_no_clinical_values(monkeypatch, audit_rows):

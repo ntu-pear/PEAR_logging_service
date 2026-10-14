@@ -156,6 +156,16 @@ def _bound_dt(value: Any, now: datetime) -> Optional[datetime]:
     return _parse_ts(value)
 
 
+def _clamp_span(time_range: Dict[str, Any]) -> Dict[str, Any]:
+    """The range cut to its last 30 days: the end stays and the start moves up."""
+    now = datetime.now(timezone.utc)
+    start = _bound_dt(time_range.get("gte"), now)
+    end = _bound_dt(time_range.get("lte"), now) if time_range.get("lte") else now
+    if start is None or end is None or end - start <= MAX_SPAN:
+        return dict(time_range)
+    return dict(time_range, gte=_iso_z(end - MAX_SPAN))
+
+
 def _range_minutes(time_range: Dict[str, Any]) -> float:
     """Length of the range in minutes; the 30 day maximum when it cannot be worked out."""
     now = datetime.now(timezone.utc)
@@ -373,28 +383,34 @@ def _audit_delete_query() -> Dict[str, Any]:
 
 def apply_audit_flags(rows: List[LogDocument], time_range: Optional[Dict[str, Any]],
                       cfg: Optional[FlagConfig] = None) -> List[LogDocument]:
-    """Attach flags to audit rows in place. Any failure leaves every row with flags=[]."""
+    """Attach flags to audit rows in place. A row that fails keeps no flags; a failed
+    window rule is skipped and leaves the row-local flags alone."""
     try:
         cfg = cfg or FlagConfig.from_env()
-        for row in rows:
+    except Exception:
+        logger.exception("Reading the flag settings failed; returning rows without flags")
+        return rows
+    for row in rows:
+        try:
             _add(row, sensitive_change(row, cfg))
             _add(row, off_hours(row, cfg))
-        deletes = [r for r in rows if (r.method or "").lower() == "delete" and r.user]
-        if deletes:
-            window = _range_for(rows, time_range, SGT)
-            if window:
-                names = {r.user: (r.user_full_name or r.user) for r in deletes}
-                hot = burst_buckets(_search, "*", _audit_delete_query(), "user.keyword",
-                                    cfg.bulk_delete_window_min, cfg.bulk_delete_count, window)
-                flag_rows(
-                    deletes, hot, key_fn=lambda r: r.user, window_min=cfg.bulk_delete_window_min,
-                    code="bulk_delete", severity="critical", naive_tz=SGT,
-                    reason_fn=lambda key, n, w: "%d deletes by %s in %d min" % (n, names.get(key, key), w),
-                )
-    except Exception:
-        logger.exception("Computing audit log flags failed; returning rows without flags")
-        for row in rows:
+        except Exception:
+            logger.exception("Computing row flags failed for one audit log row")
             row.flags = []
+    try:
+        deletes = [r for r in rows if (r.method or "").lower() == "delete" and r.user]
+        window = _range_for(rows, time_range, SGT) if deletes else None
+        if window:
+            names = {r.user: (r.user_full_name or r.user) for r in deletes}
+            hot = burst_buckets(_search, "*", _audit_delete_query(), "user.keyword",
+                                cfg.bulk_delete_window_min, cfg.bulk_delete_count, _clamp_span(window))
+            flag_rows(
+                deletes, hot, key_fn=lambda r: r.user, window_min=cfg.bulk_delete_window_min,
+                code="bulk_delete", severity="critical", naive_tz=SGT,
+                reason_fn=lambda key, n, w: "%d deletes by %s in %d min" % (n, names.get(key, key), w),
+            )
+    except Exception:
+        logger.exception("Computing the bulk_delete flag failed; skipping it")
     return rows
 
 
@@ -447,32 +463,56 @@ def _is_server_error(r: OpsLogDocument) -> bool:
 
 def apply_ops_flags(rows: List[OpsLogDocument], time_range: Optional[Dict[str, Any]],
                     cfg: Optional[FlagConfig] = None) -> List[OpsLogDocument]:
-    """Attach flags to ops rows in place. Any failure leaves every row with flags=[]."""
+    """Attach flags to ops rows in place. A row that fails keeps no flags; a failed
+    window rule is skipped and leaves the row-local flags alone."""
     try:
         cfg = cfg or FlagConfig.from_env()
-        for row in rows:
-            _add(row, mask_false(row))
-        window = _range_for(rows, time_range, timezone.utc)
-        if window and any(_is_failed_login(r) for r in rows):
-            hot = burst_buckets(_search, "*", failed_login_query(), "user_id.keyword", cfg.failed_login_window_min,
-                                cfg.failed_login_count, window)
-            flag_rows(rows, hot, key_fn=lambda r: r.user_id, window_min=cfg.failed_login_window_min,
-                      code="failed_login_burst", severity="warning", row_filter=_is_failed_login,
-                      reason_fn=lambda key, n, w: "%d failed logins for %s in %d min" % (n, key, w))
-        if window and any(_is_patient_read(r) for r in rows):
-            hot = burst_buckets(_search, "*", mass_access_query(), "user_id.keyword", cfg.mass_access_window_min,
-                                cfg.mass_access_count, window, distinct_field="http_path.keyword")
-            flag_rows(rows, hot, key_fn=lambda r: r.user_id, window_min=cfg.mass_access_window_min,
-                      code="mass_access", severity="critical", row_filter=_is_patient_read,
-                      reason_fn=lambda key, n, w: "%d distinct patient records read by %s in %d min" % (n, key, w))
-        if window and any(_is_server_error(r) for r in rows):
-            hot = burst_buckets(_search, "*", error_spike_query(), "service.keyword", cfg.error_spike_window_min,
-                                cfg.error_spike_count, window)
-            flag_rows(rows, hot, key_fn=lambda r: r.service, window_min=cfg.error_spike_window_min,
-                      code="error_spike", severity="warning", row_filter=_is_server_error,
-                      reason_fn=lambda key, n, w: "%d errors from %s in %d min" % (n, key, w))
     except Exception:
-        logger.exception("Computing ops log flags failed; returning rows without flags")
-        for row in rows:
+        logger.exception("Reading the flag settings failed; returning rows without flags")
+        return rows
+    for row in rows:
+        try:
+            _add(row, mask_false(row))
+        except Exception:
+            logger.exception("Computing row flags failed for one ops log row")
             row.flags = []
+    try:
+        window = _range_for(rows, time_range, timezone.utc)
+        window = _clamp_span(window) if window else None
+    except Exception:
+        logger.exception("Working out the flag time range failed; skipping window flags")
+        return rows
+    if not window:
+        return rows
+
+    def failed_login() -> None:
+        hot = burst_buckets(_search, "*", failed_login_query(), "user_id.keyword", cfg.failed_login_window_min,
+                            cfg.failed_login_count, window)
+        flag_rows(rows, hot, key_fn=lambda r: r.user_id, window_min=cfg.failed_login_window_min,
+                  code="failed_login_burst", severity="warning", row_filter=_is_failed_login,
+                  reason_fn=lambda key, n, w: "%d failed logins for %s in %d min" % (n, key, w))
+
+    def mass_access() -> None:
+        hot = burst_buckets(_search, "*", mass_access_query(), "user_id.keyword", cfg.mass_access_window_min,
+                            cfg.mass_access_count, window, distinct_field="http_path.keyword")
+        flag_rows(rows, hot, key_fn=lambda r: r.user_id, window_min=cfg.mass_access_window_min,
+                  code="mass_access", severity="critical", row_filter=_is_patient_read,
+                  reason_fn=lambda key, n, w: "%d distinct patient records read by %s in %d min" % (n, key, w))
+
+    def error_spike() -> None:
+        hot = burst_buckets(_search, "*", error_spike_query(), "service.keyword", cfg.error_spike_window_min,
+                            cfg.error_spike_count, window)
+        flag_rows(rows, hot, key_fn=lambda r: r.service, window_min=cfg.error_spike_window_min,
+                  code="error_spike", severity="warning", row_filter=_is_server_error,
+                  reason_fn=lambda key, n, w: "%d errors from %s in %d min" % (n, key, w))
+
+    for name, applies, rule in (("failed_login_burst", _is_failed_login, failed_login),
+                                ("mass_access", _is_patient_read, mass_access),
+                                ("error_spike", _is_server_error, error_spike)):
+        if not any(applies(r) for r in rows):
+            continue
+        try:
+            rule()
+        except Exception:
+            logger.exception("Computing the %s flag failed; skipping it", name)
     return rows

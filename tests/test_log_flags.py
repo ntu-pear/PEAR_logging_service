@@ -405,18 +405,33 @@ def test_apply_audit_flags_derives_range_when_missing(monkeypatch):
     assert "gte" in rng and "lte" in rng
 
 
-def test_apply_audit_flags_any_exception_gives_empty_flags(monkeypatch):
+def test_apply_audit_flags_es_failure_keeps_row_local_flags(monkeypatch):
     def boom(**kw):
         raise RuntimeError("es down")
 
     monkeypatch.setattr(log_flags.es_service, "search_documents", boom)
     rows = [
-        audit(ts="2026-10-14T15:00:00Z", method="delete"),   # would be off_hours
+        audit(ts="2026-10-14T15:00:00Z", method="delete"),   # off_hours; the bulk_delete lookup fails
         audit(ts="2026-10-14T04:00:00Z"),
     ]
     out = log_flags.apply_audit_flags(rows, {"gte": "2026-10-14T00:00:00Z"}, FlagConfig())
     assert out is rows
-    assert all(r.flags == [] for r in rows)
+    assert [f.code for f in rows[0].flags] == ["off_hours"]
+    assert rows[1].flags == []
+
+
+def test_apply_audit_flags_long_range_is_clamped_and_keeps_row_flags(monkeypatch):
+    fake = FakeEs(lambda b: agg_response([]))
+    monkeypatch.setattr(log_flags.es_service, "search_documents", fake)
+    rows = [
+        audit(ts="2026-08-01T04:00:00", method="delete", table="PatientAllergyMapping"),
+        audit(ts="2026-10-14T04:00:00", method="update"),
+    ]
+    log_flags.apply_audit_flags(rows, None, FlagConfig())  # rows span 74 days
+    assert "sensitive_change" in [f.code for f in rows[0].flags]
+    must = fake.bodies[0]["query"]["bool"]["must"]
+    rng = next(c["range"]["@timestamp"] for c in must if "range" in c)
+    assert log_flags._parse_ts(rng["lte"]) - log_flags._parse_ts(rng["gte"]) <= log_flags.MAX_SPAN
 
 
 def test_apply_audit_flags_empty_rows_makes_no_query(monkeypatch):
@@ -491,7 +506,7 @@ def test_apply_ops_flags_skips_queries_without_relevant_rows(monkeypatch):
     assert fake.bodies == []
 
 
-def test_apply_ops_flags_exception_gives_empty_flags(monkeypatch):
+def test_apply_ops_flags_es_failure_keeps_row_local_flags(monkeypatch):
     def boom(**kw):
         raise RuntimeError("bad agg")
 
@@ -502,7 +517,41 @@ def test_apply_ops_flags_exception_gives_empty_flags(monkeypatch):
     ]
     out = log_flags.apply_ops_flags(rows, {"gte": "2026-10-14T00:00:00Z"}, FlagConfig())
     assert out is rows
-    assert all(r.flags == [] for r in rows)
+    assert rows[0].flags == []
+    assert [f.code for f in rows[1].flags] == ["mass_access"]
+
+
+def test_apply_ops_flags_one_failed_rule_does_not_stop_the_others(monkeypatch):
+    t = bucket_start("2026-10-14T01:00:00Z")
+
+    def responder(body):
+        if _field_of(body) == "service.keyword":
+            raise RuntimeError("bad agg")
+        return agg_response([(t, [("u1", 6)])])
+
+    monkeypatch.setattr(log_flags.es_service, "search_documents", FakeEs(responder))
+    rows = [
+        ops("error", ts="2026-10-14T03:03:00Z", service="patient"),
+        ops("auth", ts="2026-10-14T01:02:00Z", user_id="u1", event="login_failed"),
+    ]
+    log_flags.apply_ops_flags(rows, {"gte": "2026-10-14T00:00:00Z", "lte": "2026-10-14T06:00:00Z"}, FlagConfig())
+    assert rows[0].flags == []
+    assert [f.code for f in rows[1].flags] == ["failed_login_burst"]
+
+
+def test_apply_ops_flags_long_range_is_clamped_and_keeps_row_flags(monkeypatch):
+    fake = FakeEs(lambda b: agg_response([]))
+    monkeypatch.setattr(log_flags.es_service, "search_documents", fake)
+    rows = [
+        ops("request", ts="2026-10-14T05:00:00Z", query="mask=false", user_id="u4"),
+        ops("auth", ts="2026-10-14T01:02:00Z", user_id="u1", event="login_failed"),
+    ]
+    log_flags.apply_ops_flags(rows, {"gte": "2026-07-01T00:00:00Z", "lte": "2026-10-14T06:00:00Z"}, FlagConfig())
+    assert [f.code for f in rows[0].flags] == ["mass_access"]
+    must = fake.bodies[0]["query"]["bool"]["must"]
+    rng = next(c["range"]["@timestamp"] for c in must if "range" in c)
+    assert rng["lte"] == "2026-10-14T06:00:00Z"
+    assert log_flags._parse_ts(rng["lte"]) - log_flags._parse_ts(rng["gte"]) <= log_flags.MAX_SPAN
 
 
 def test_apply_ops_flags_malformed_response_gives_empty_flags(monkeypatch):
