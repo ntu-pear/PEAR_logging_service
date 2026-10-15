@@ -78,8 +78,8 @@ def get_patient_history(
         raise HTTPException(status_code=403, detail="Not permitted to view patient history")
     pageSize = min(max(pageSize, 1), 100)
     query = LogQuery(patient=patient_id)
-    db_logs, totalRecords, totalPages = logs_crud.get_logs_by_param_patient(query, pageNo, pageSize, include_activity=True)
     undone = _undone_administration_ids(patient_id)
+    db_logs, totalRecords, totalPages = logs_crud.get_logs_by_param_patient(query, pageNo, pageSize, include_activity=True)
     rows = [
         row for row in db_logs
         if not getattr(row, "is_system_config", False) and not str(getattr(row, "table", "")).startswith("REF_")
