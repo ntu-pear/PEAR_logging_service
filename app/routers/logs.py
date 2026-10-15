@@ -16,6 +16,17 @@ router = APIRouter()
 CARE_OVERSIGHT = require_roles("SUPERVISOR", "ADMIN")
 ADMIN_ONLY = require_roles("ADMIN")
 HISTORY_DENIED_ROLES = {"GUARDIAN", "ADMIN"}
+ADMINISTRATION_TABLE = "PATIENT_MEDICATION_ADMINISTRATION"
+UNDONE_LOOKUP_LIMIT = 1000
+
+
+def _undone_administration_ids(patient_id):
+    """Record ids of doses a supervisor undid for this patient. History hides both the
+    "given" and the "undone" entry for these; the admin logs still show them. A dose
+    marked again after an undo is a new record with its own id, so it stays visible."""
+    query = LogQuery(patient=patient_id, table=ADMINISTRATION_TABLE, action="delete")
+    rows, _, _ = logs_crud.get_logs_by_param_patient(query, 0, UNDONE_LOOKUP_LIMIT)
+    return {row.entity_id for row in rows if row.table == ADMINISTRATION_TABLE and row.entity_id is not None}
 
 
 def _sgt_bound(value, end_of_day):
@@ -67,10 +78,12 @@ def get_patient_history(
         raise HTTPException(status_code=403, detail="Not permitted to view patient history")
     pageSize = min(max(pageSize, 1), 100)
     query = LogQuery(patient=patient_id)
+    undone = _undone_administration_ids(patient_id)
     db_logs, totalRecords, totalPages = logs_crud.get_logs_by_param_patient(query, pageNo, pageSize, include_activity=True)
     rows = [
         row for row in db_logs
         if not getattr(row, "is_system_config", False) and not str(getattr(row, "table", "")).startswith("REF_")
+        and not (row.table == ADMINISTRATION_TABLE and row.entity_id in undone)
     ]
     rows = apply_audit_flags(rows, _audit_range(query))
     return PaginatedResponse(data=resolve_user_names(rows, token), pageNo=pageNo, pageSize=pageSize,
