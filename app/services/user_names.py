@@ -145,3 +145,17 @@ def resolve_user_names(logs: List[Any], token: str) -> List[Any]:
     except Exception as exc:
         logger.warning("User name resolution failed; returning logs unchanged: %s", exc)
         return logs
+
+
+def lookup_names(user_ids: List[str], token: str) -> Dict[str, str]:
+    """Display names for plain user ids (the stats dashboard). Never raises: {} when the
+    user service is unconfigured or unavailable, so callers fall back to the ids."""
+    try:
+        base_url = os.getenv(BASE_URL_ENV, "").rstrip("/")
+        ids = list(dict.fromkeys(i for i in user_ids if i))
+        if not base_url or not token or not ids:
+            return {}
+        return _fetch(base_url, token, ids)
+    except Exception as exc:
+        logger.warning("User name lookup failed; showing ids: %s", exc)
+        return {}
