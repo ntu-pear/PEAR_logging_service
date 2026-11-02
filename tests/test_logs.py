@@ -151,9 +151,14 @@ def test_get_logs_with_action_filter(mock_es_service):
     assert 'bool' in query_body['query']
     assert 'must' in query_body['query']['bool']
 
-    # Check that action filter is present
+    # Check that a dual-pathed action filter is present -- matching either
+    # the legacy text-in-"message" shape or the new top-level "action"
+    # field promoted by Logstash for JSON-formatted log lines.
     has_action_filter = any(
-        'match_phrase' in condition and 'message' in condition['match_phrase']
+        condition.get("bool", {}).get("should") == [
+            {"match_phrase": {"message": "\"action\": \"update\""}},
+            {"match_phrase": {"action": "update"}},
+        ]
         for condition in query_body['query']['bool']['must']
     )
     assert has_action_filter
@@ -179,6 +184,25 @@ def test_get_logs_with_pagination(mock_es_service):
     assert total_pages == 1  # 3 records / 5 per page = 1 page
 
 
+def test_get_logs_with_environment_filter(mock_es_service):
+    """Test getting logs filtered by environment"""
+    query = LogQuery(environment="staging")
+
+    logs, total_records, total_pages = get_logs_by_param_patient(query=query)
+
+    call_args = mock_es_service.search_documents.call_args
+    query_body = call_args.kwargs['body']
+
+    assert 'bool' in query_body['query']
+    assert 'must' in query_body['query']['bool']
+
+    has_environment_filter = any(
+        condition.get('match_phrase', {}).get('fields.environment') == 'staging'
+        for condition in query_body['query']['bool']['must']
+    )
+    assert has_environment_filter
+
+
 def test_get_logs_with_date_range(mock_es_service):
     """Test date range filtering"""
     query = LogQuery(
@@ -197,3 +221,15 @@ def test_get_logs_with_date_range(mock_es_service):
         for condition in query_body['query']['bool']['must']
     )
     assert has_date_filter
+
+def test_patient_logs_carry_entity_id(mock_es_service):
+    logs, _, _ = get_logs_by_param_patient(LogQuery(), 0, 10)
+    assert [log.entity_id for log in logs[:2]] == [1, 2]
+
+
+def test_non_numeric_entity_id_does_not_drop_the_row(mock_es_service):
+    hit = sample_es_response["hits"]["hits"][0]
+    bad = {"_source": dict(hit["_source"], message=hit["_source"]["message"].replace('"entity_id": 1', '"entity_id": "None"'))}
+    mock_es_service.search_documents.return_value = {"hits": {"total": {"value": 1}, "hits": [bad]}}
+    logs, _, _ = get_logs_by_param_patient(LogQuery(), 0, 10)
+    assert len(logs) == 1 and logs[0].entity_id is None

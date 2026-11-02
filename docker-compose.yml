@@ -1,0 +1,10 @@
+name: logger-service-staging
+
+services:
+  logger-service-staging:
+    build: .
+    ports:
+      - "30002:8001"
+    env_file:
+      - .env
+    restart: unless-stopped
